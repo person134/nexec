@@ -35,25 +35,34 @@ fn main() -> Status {
 
     let detected = if !cfg.no_scan { detect::scan_esp() } else { Vec::new() };
 
-    let mut menu = menu::Menu::new(&cfg, detected);
+    let mut menu_ui = menu::Menu::new(&cfg, detected);
 
     loop {
-        match menu.run() {
+        match menu_ui.run() {
             menu::MenuResult::Boot(entry) => {
                 decrement_boot_counter(&entry);
                 backup_entries();
                 boot_loader::boot_entry(&entry);
-                println!();
-                println!("Boot failed. Press any key for options...");
+                menu::show_status(&[
+                    ("Boot failed. Press any key for options...", uefi::proto::console::text::Color::Red),
+                ]);
                 boot_loader::wait_for_key();
             }
             menu::MenuResult::Manual => manual_boot(),
             menu::MenuResult::RestoreBackup => {
-                println!("Restoring backup...");
+                menu::show_status(&[
+                    ("Restoring backup...", uefi::proto::console::text::Color::Yellow),
+                ]);
                 if restore_entries() {
-                    println!("Backup restored. Press any key to reboot...");
+                    menu::show_status(&[
+                        ("Backup restored!", uefi::proto::console::text::Color::Green),
+                        ("Press any key to reboot...", uefi::proto::console::text::Color::White),
+                    ]);
                 } else {
-                    println!("No backup found. Press any key to continue...");
+                    menu::show_status(&[
+                        ("No backup found.", uefi::proto::console::text::Color::Red),
+                        ("Press any key to continue...", uefi::proto::console::text::Color::White),
+                    ]);
                 }
                 boot_loader::wait_for_key();
                 boot_loader::reset_system();
@@ -157,7 +166,10 @@ fn manual_boot_with_input(input: &mut Input) {
             return;
         }
         if !boot_loader::boot_entry(&entry) {
-            println!("Boot failed. Press any key to continue...");
+            menu::show_status(&[
+                ("Boot failed.", uefi::proto::console::text::Color::Red),
+                ("Press any key to continue...", uefi::proto::console::text::Color::White),
+            ]);
             boot_loader::wait_for_key();
         }
     }
