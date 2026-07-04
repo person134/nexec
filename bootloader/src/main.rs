@@ -246,7 +246,7 @@ fn check_recovery_key() {
 
     println!("Hold r for recovery...");
 
-    for _ in 0..200 {
+    for _ in 0..500 {
         if let Ok(Some(key)) = input.read_key() {
             if let Key::Printable(c) = key {
                 let c_val: u16 = c.into();
