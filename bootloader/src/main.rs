@@ -246,7 +246,7 @@ fn check_recovery_key(timeout_secs: u64) -> bool {
     let _ = input.reset(false);
 
     let iterations = timeout_secs * 100;
-    println!("Hold r for recovery ({}s)...", timeout_secs);
+    println!("Press r for recovery ({}s)...", timeout_secs);
 
     for _ in 0..iterations {
         if let Ok(Some(key)) = input.read_key() {
@@ -378,6 +378,8 @@ fn load_config() -> Option<config::Config> {
                 if cfg.default.is_none() {
                     cfg.default = parsed.default;
                 }
+                cfg.timeout = parsed.timeout;
+                cfg.recovery_timeout = parsed.recovery_timeout;
                 if cfg.order.is_none() {
                     cfg.order = parsed.order;
                 }
