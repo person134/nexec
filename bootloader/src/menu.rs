@@ -112,7 +112,7 @@ fn draw_line(g: &mut Output, text: &str, w: usize, color: Color) {
     let tlen = text.chars().count();
     if tlen >= inner {
         let s: String = text.chars().take(inner).collect();
-        write_str(g, &format!("│ {}│\r\n", s));
+        write_str(g, &format!("│ {} │\r\n", s));
     } else {
         write_str(g, &format!("│ {}{} │\r\n", text, " ".repeat(inner - tlen)));
     }
@@ -127,7 +127,7 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
 
     let inner = w.saturating_sub(4);
     let prefix = format!("  {} {}", marker, num);
-    let full = format!("{}{}{}", prefix, entry.title, counter);
+    let full = format!("{} {}{}", prefix, entry.title, counter);
     let flen = full.chars().count();
 
     write_str(g, "│ ");
@@ -137,6 +137,7 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
         set_fg(g, Color::White);
     }
     write_str(g, &prefix);
+    write_str(g, " ");
     write_str(g, &entry.title);
 
     if !counter.is_empty() {
@@ -416,8 +417,8 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         }
 
         set_fg(g, Color::DarkGray);
-        write_str(g, &format!("│  {}{} │\r\n", foot1, " ".repeat(inner.saturating_sub(foot1.chars().count() + 2))));
-        write_str(g, &format!("│  {}{} │\r\n", foot2, " ".repeat(inner.saturating_sub(foot2.chars().count() + 2))));
+        write_str(g, &format!("│  {}{} │\r\n", foot1, " ".repeat(inner.saturating_sub(foot1.chars().count() + 1))));
+        write_str(g, &format!("│  {}{} │\r\n", foot2, " ".repeat(inner.saturating_sub(foot2.chars().count() + 1))));
         draw_bottom(g, w);
     });
 }
