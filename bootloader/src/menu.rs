@@ -314,6 +314,10 @@ impl Menu {
         let _ = input.reset(false);
         let mut remaining = self.timeout * 10;
 
+        uefi::system::with_stdout(|g| {
+            let _ = g.clear();
+        });
+
         let mut dirty = true;
 
         loop {
