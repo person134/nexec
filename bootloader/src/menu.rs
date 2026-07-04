@@ -531,10 +531,6 @@ pub fn browse_efi_files(input: &mut Input) -> Option<Entry> {
 
     let mut selected = 0;
 
-    uefi::system::with_stdout(|g| {
-        let _ = g.clear();
-    });
-
     loop {
         uefi::system::with_stdout(|g| {
             let (cols, rows) = g
