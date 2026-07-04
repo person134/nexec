@@ -1,7 +1,26 @@
+use std::path::Path;
 use std::process::Command;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const RELEASE_URL: &str = "https://github.com/person134/hboot/releases/latest/download";
+
+fn detect_esp_for_update() -> Option<String> {
+    for candidate in &["/boot", "/efi", "/boot/efi"] {
+        if Path::new(candidate).is_dir() {
+            if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+                for line in mounts.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 3 && parts[1] == *candidate {
+                        if parts[2].contains("fat") || parts[2].contains("vfat") {
+                            return Some(candidate.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 pub fn update() {
     println!("hboot update v{}", VERSION);
@@ -70,6 +89,28 @@ pub fn update() {
     if !status.success() {
         eprintln!("error: installer failed");
         std::process::exit(1);
+    }
+
+    println!("  Ensuring recovery_timeout in config...");
+    let esp = detect_esp_for_update().unwrap_or_default();
+    let config_paths = [
+        format!("{}/EFI/hboot/hboot.conf", esp),
+        format!("{}/hboot.conf", esp),
+    ];
+    for path in &config_paths {
+        if !Path::new(path).exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        if content.contains("recovery_timeout") {
+            break;
+        }
+        let updated = format!("{}\nrecovery_timeout = 5\n", content.trim_end());
+        std::fs::write(path, &updated).unwrap_or_else(|e| {
+            eprintln!("warning: failed to update {}: {}", path, e);
+        });
+        println!("    Added recovery_timeout = 5 to {}", path);
+        break;
     }
 
     println!("  Updating /usr/bin/hboot...");
