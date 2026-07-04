@@ -52,6 +52,9 @@ fn main() -> Status {
                 boot_loader::wait_for_key();
             }
             menu::MenuResult::Manual => manual_boot(),
+            menu::MenuResult::Shutdown => {
+                uefi::runtime::reset(uefi::runtime::ResetType::SHUTDOWN, uefi::Status::SUCCESS, None);
+            }
             menu::MenuResult::RestoreBackup => {
                 menu::show_status(&[
                     ("Restoring backup...", uefi::proto::console::text::Color::DarkGray),

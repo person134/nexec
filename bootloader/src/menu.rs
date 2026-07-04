@@ -41,6 +41,7 @@ pub enum MenuResult {
     Boot(Entry),
     Manual,
     RestoreBackup,
+    Shutdown,
 }
 
 enum KeyAction {
@@ -48,6 +49,7 @@ enum KeyAction {
     Boot,
     Manual,
     RestoreBackup,
+    Shutdown,
 }
 
 pub struct Menu {
@@ -340,6 +342,7 @@ impl Menu {
                         }
                         KeyAction::Manual => return MenuResult::Manual,
                         KeyAction::RestoreBackup => return MenuResult::RestoreBackup,
+                        KeyAction::Shutdown => return MenuResult::Shutdown,
                         KeyAction::Nothing => {}
                     }
                 }
@@ -351,6 +354,7 @@ impl Menu {
                         }
                         KeyAction::Manual => return MenuResult::Manual,
                         KeyAction::RestoreBackup => return MenuResult::RestoreBackup,
+                        KeyAction::Shutdown => return MenuResult::Shutdown,
                         KeyAction::Nothing => {}
                     }
                 }
@@ -414,7 +418,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
 
         let title = format!("hboot v{}", VERSION);
         let foot1 = "↑↓=boot  m=manual  b=backups";
-        let foot2 = "f=firmware  r=reboot";
+        let foot2 = "f=firmware  r=reboot  s=shutdown";
 
         let mut lines: Vec<String> = Vec::new();
         for e in &menu.entries {
@@ -659,6 +663,9 @@ fn handle_key(key: Key, menu: &mut Menu) -> KeyAction {
             }
             if c_val == b'r' as u16 || c_val == b'R' as u16 {
                 crate::boot_loader::reset_system();
+            }
+            if c_val == b's' as u16 || c_val == b'S' as u16 {
+                return KeyAction::Shutdown;
             }
             if c_val >= b'1' as u16 && c_val <= b'9' as u16 {
                 let idx = (c_val - b'1' as u16) as usize;
