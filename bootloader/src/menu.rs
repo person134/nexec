@@ -315,13 +315,10 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
                     });
                 } else if (32..=126).contains(&c_val) {
                     buf.push(c_val as u8);
-                    let ch = core::char::from_u32(c_val as u32).unwrap_or('?');
-                    let mut tmp = [0u16; 2];
-                    let encoded = ch.encode_utf16(&mut tmp);
+                    let pair = [c_val as u16, 0];
                     let _ = uefi::system::with_stdout(|g| {
-                        let s = uefi::CStr16::from_u16_with_nul(encoded).ok();
-                        if let Some(cs) = s {
-                            g.output_string(cs).ok();
+                        if let Ok(cs) = uefi::CStr16::from_u16_with_nul(&pair) {
+                            let _ = g.output_string(cs);
                         }
                     });
                 }
