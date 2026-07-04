@@ -1,17 +1,15 @@
 use alloc::format;
 use alloc::string::String;
-use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
 use uefi::boot;
 use uefi::boot::{OpenProtocolAttributes, OpenProtocolParams, SearchType};
 use uefi::proto::console::text::{Color, Input, Key, Output, ScanCode};
-use uefi::cstr16;
 use uefi::CStr16;
 use uefi::Identify;
 
 use crate::config::{Config, Entry};
-use crate::util;
+use crate::detect;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -321,7 +319,7 @@ impl Menu {
         loop {
             if self.entries.is_empty() {
                 draw_no_entries();
-                match prompt_manual(input) {
+                match browse_efi_files(input) {
                     Some(entry) => return MenuResult::Boot(entry),
                     None => continue,
                 }
@@ -512,83 +510,91 @@ fn azerty_to_qwerty(c: u16) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
-// Manual boot prompt
+// EFI file browser (replaces manual text-input prompt)
 // ---------------------------------------------------------------------------
 
-pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
-    let (start_x, start_y) = uefi::system::with_stdout(|g| {
-        let (cols, rows) = g.current_mode().ok().flatten()
-            .map(|m| (m.columns(), m.rows()))
-            .unwrap_or((80, 25));
-        let w = ((cols as usize).saturating_sub(2)).min(54);
-        let box_h = 8;
-        let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
-        let start_x = (cols - w) / 2;
-        let title = "Manual Boot".to_string();
+pub fn browse_efi_files(input: &mut Input) -> Option<Entry> {
+    let entries = detect::scan_efi_files();
+    if entries.is_empty() {
+        show_status(&[
+            ("No .efi files found on ESP", Color::White),
+            ("Press any key to go back...", Color::DarkGray),
+        ]);
+        let _ = input.reset(false);
+        loop {
+            if let Some(_key) = read_key_blocking(input) {
+                break;
+            }
+        }
+        return None;
+    }
 
-        g.set_cursor_position(0, start_y).ok();
+    let mut selected = 0;
 
-        draw_top(g, &title, w, start_x);
-        draw_empty(g, w, start_x);
-        draw_line(g, "Enter path to .efi file", w, Color::White, start_x);
-        draw_line(g, "(e.g. /EFI/arch/systemd-bootx64.efi)", w, Color::DarkGray, start_x);
-        draw_empty(g, w, start_x);
-        // Input line with prompt
-        indent(g, start_x);
-        set_fg_bg(g, Color::White, Color::Black);
-        write_str(g, "│ ");
-        set_fg_bg(g, Color::DarkGray, Color::Black);
-        write_str(g, "> ");
-        set_fg_bg(g, Color::White, Color::Black);
-        write_str(g, &" ".repeat(w.saturating_sub(4) - 2));
-        write_str(g, " │\r\n");
-        draw_empty(g, w, start_x);
-        draw_line(g, "Enter to boot, Esc to go back", w, Color::DarkGray, start_x);
-        draw_bottom(g, w, start_x);
-        (start_x, start_y)
+    uefi::system::with_stdout(|g| {
+        let _ = g.clear();
     });
 
-    let input_col_start = start_x + 4;
-    let input_row = start_y + 5;
-
-    let mut buf: Vec<u8> = Vec::new();
     loop {
+        uefi::system::with_stdout(|g| {
+            let (cols, rows) = g
+                .current_mode()
+                .ok()
+                .flatten()
+                .map(|m| (m.columns(), m.rows()))
+                .unwrap_or((80, 25));
+
+            let title = "Manual Boot — Select .efi";
+            let lines: Vec<String> = entries
+                .iter()
+                .map(|e| e.efi_path.clone())
+                .collect();
+            let w = box_width(cols, title, &lines);
+            let box_h = entries.len() + 6;
+            let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
+            let start_x = (cols - w) / 2;
+
+            g.set_cursor_position(0, start_y).ok();
+
+            draw_top(g, title, w, start_x);
+            draw_empty(g, w, start_x);
+
+            for (i, entry) in entries.iter().enumerate() {
+                draw_entry_line(g, entry, i == selected, w, start_x);
+            }
+
+            draw_empty(g, w, start_x);
+            draw_line(g, "Enter=boot  Esc=back", w, Color::DarkGray, start_x);
+            draw_bottom(g, w, start_x);
+            set_fg_bg(g, Color::Black, Color::Black);
+            indent(g, start_x);
+            write_str(g, &" ".repeat(w));
+            set_fg_bg(g, Color::White, Color::Black);
+            write_str(g, "\r\n");
+        });
+
         let Some(key) = read_key_blocking(input) else { continue };
         match key {
+            Key::Special(sc) if sc == ScanCode::UP => {
+                if selected > 0 {
+                    selected -= 1;
+                }
+            }
+            Key::Special(sc) if sc == ScanCode::DOWN => {
+                if selected < entries.len().saturating_sub(1) {
+                    selected += 1;
+                }
+            }
+            Key::Special(sc) if sc == ScanCode::HOME => {
+                selected = 0;
+            }
+            Key::Special(sc) if sc == ScanCode::END => {
+                selected = entries.len().saturating_sub(1);
+            }
             Key::Printable(c) => {
-                let c_val: u16 = azerty_to_qwerty(c.into());
+                let c_val: u16 = c.into();
                 if c_val == b'\r' as u16 || c_val == b'\n' as u16 {
-                    if !buf.is_empty() {
-                        let path = core::str::from_utf8(&buf).unwrap_or("").to_string();
-                        let normalized = util::normalize_path(&path);
-                        return Some(Entry {
-                            name: "manual".into(),
-                            title: path,
-                            efi_path: normalized,
-                            options: None,
-                            initrd: Vec::new(),
-                            boot_counter: None,
-                            source_path: None,
-                        });
-                    }
-                } else if c_val == 8 || c_val == 127 {
-                    if !buf.is_empty() {
-                        buf.pop();
-                        uefi::system::with_stdout(|g| {
-                            g.set_cursor_position(input_col_start + buf.len(), input_row).ok();
-                            let _ = g.output_string(cstr16!(" "));
-                        });
-                    }
-                } else if (32..=126).contains(&c_val) {
-                    let col = input_col_start + buf.len();
-                    let pair = [c_val as u16, 0];
-                    uefi::system::with_stdout(|g| {
-                        g.set_cursor_position(col, input_row).ok();
-                        if let Ok(cs) = uefi::CStr16::from_u16_with_nul(&pair) {
-                            let _ = g.output_string(cs);
-                        }
-                    });
-                    buf.push(c_val as u8);
+                    return Some(entries[selected].clone());
                 }
             }
             Key::Special(sc) if sc == ScanCode::ESCAPE => return None,

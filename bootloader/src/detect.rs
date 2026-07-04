@@ -4,7 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use uefi::boot;
 use uefi::cstr16;
-use uefi::fs::FileSystem;
+use uefi::fs::{FileSystem, Path, PathBuf};
 use uefi::CString16;
 
 use crate::config::Entry;
@@ -218,4 +218,57 @@ fn find_initrd(fs: &mut FileSystem, version: &str) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+fn walk_efi(fs: &mut FileSystem, dir_path: &Path, entries: &mut Vec<Entry>, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let dir_iter = match fs.read_dir(dir_path) {
+        Ok(it) => it,
+        Err(_) => return,
+    };
+    for result in dir_iter {
+        let info = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = info.file_name();
+        if name == cstr16!(".") || name == cstr16!("..") {
+            continue;
+        }
+        let mut full_path = dir_path.to_path_buf();
+        full_path.push(PathBuf::from(name));
+        if info.is_directory() {
+            walk_efi(fs, &full_path, entries, depth + 1);
+        } else {
+            let name_str = name.to_string();
+            if name_str.ends_with(".efi") || name_str.ends_with(".EFI") {
+                let path_str = full_path.to_cstr16().to_string();
+                let title = name_str
+                    .trim_end_matches(".efi")
+                    .trim_end_matches(".EFI")
+                    .to_string();
+                entries.push(Entry {
+                    name: title.clone(),
+                    title,
+                    efi_path: path_str,
+                    options: None,
+                    initrd: Vec::new(),
+                    boot_counter: None,
+                    source_path: None,
+                });
+            }
+        }
+    }
+}
+
+pub fn scan_efi_files() -> Vec<Entry> {
+    let mut fs = match get_fs() {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let mut entries = Vec::new();
+    walk_efi(&mut fs, Path::new(cstr16!("\\")), &mut entries, 0);
+    entries
 }

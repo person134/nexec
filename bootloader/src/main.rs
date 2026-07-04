@@ -164,7 +164,7 @@ fn get_stdin_system() -> Option<&'static mut Input> {
 
 fn manual_boot_with_input(input: &mut Input) {
     let _ = input.reset(false);
-    if let Some(entry) = menu::prompt_manual(input) {
+    if let Some(entry) = menu::browse_efi_files(input) {
         if entry.efi_path.is_empty() {
             return;
         }
