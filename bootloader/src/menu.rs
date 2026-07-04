@@ -274,13 +274,18 @@ fn draw_menu(menu: &Menu, remaining: u64) {
 
 pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
     uefi::system::with_stdout(|g| {
+        let _ = g.clear();
         let _ = g.set_cursor_position(0, 0);
         let _ = g.output_string(cstr16!(
-            "Enter path to .efi file (e.g. /EFI/arch/systemd-bootx64.efi):\r\n"
+            "Enter path to .efi file\r\n"
         ));
         let _ = g.output_string(cstr16!(
-            "Type the path and press Enter, or press Esc to go back.\r\n"
+            "(e.g. /EFI/arch/systemd-bootx64.efi)\r\n"
         ));
+        let _ = g.output_string(cstr16!(
+            "Press Enter to boot, Esc to go back.\r\n"
+        ));
+        let _ = g.output_string(cstr16!("> "));
     });
 
     let mut buf: Vec<u8> = Vec::new();
@@ -305,8 +310,20 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
                     }
                 } else if c_val == 8 || c_val == 127 {
                     buf.pop();
+                    uefi::system::with_stdout(|g| {
+                        let _ = g.output_string(cstr16!("\x08 \x08"));
+                    });
                 } else if (32..=126).contains(&c_val) {
                     buf.push(c_val as u8);
+                    let ch = core::char::from_u32(c_val as u32).unwrap_or('?');
+                    let mut tmp = [0u16; 2];
+                    let encoded = ch.encode_utf16(&mut tmp);
+                    let _ = uefi::system::with_stdout(|g| {
+                        let s = uefi::CStr16::from_u16_with_nul(encoded).ok();
+                        if let Some(cs) = s {
+                            g.output_string(cs).ok();
+                        }
+                    });
                 }
             }
             Key::Special(sc) if sc == ScanCode::ESCAPE => return None,

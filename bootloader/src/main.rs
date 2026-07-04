@@ -175,27 +175,48 @@ fn recovery_menu_with_input(input: &mut Input) {
     let _ = input.reset(false);
 
     loop {
+        let lines = [
+            "",
+            "  Recovery menu",
+            "  ------------------------------",
+            "  m  Manual boot (type an .efi path)",
+            "  b  Restore backup entries and retry",
+            "  r  Reboot",
+            "  f  Firmware setup",
+            "  s  Shutdown",
+            "  Esc  Back to boot menu",
+            "  ------------------------------",
+            "  Choose an option:",
+        ];
+
         uefi::system::with_stdout(|g| {
             let _ = g.clear();
+            let (cols, rows) = g
+                .current_mode()
+                .ok()
+                .flatten()
+                .map(|m| (m.columns(), m.rows()))
+                .unwrap_or((80, 25));
+            let start_y = if lines.len() < rows { (rows - lines.len()) / 2 } else { 1 };
+            let _ = g.set_cursor_position(0, start_y);
+
+            let mut text = String::new();
+            for line in &lines {
+                let width = line.chars().count();
+                let fill = cols.saturating_sub(1);
+                let pad_x = if width < fill { (fill - width) / 2 } else { 0 };
+                for _ in 0..pad_x {
+                    text.push(' ');
+                }
+                text.push_str(line);
+                text.push_str("\r\n");
+            }
+
+            let mut u16_buf = [0u16; 2048];
+            if let Ok(cstr) = uefi::CStr16::from_str_with_buf(&text, &mut u16_buf) {
+                let _ = g.output_string(cstr);
+            }
         });
-
-        let mut text = String::new();
-        text.push_str("\r\n");
-        text.push_str("  Recovery menu\r\n");
-        text.push_str("  ------------------------------\r\n");
-        text.push_str("  m  Manual boot (type an .efi path)\r\n");
-        text.push_str("  b  Restore backup entries and retry\r\n");
-        text.push_str("  r  Reboot\r\n");
-        text.push_str("  f  Firmware setup\r\n");
-        text.push_str("  s  Shutdown\r\n");
-        text.push_str("  Esc  Back to boot menu\r\n");
-        text.push_str("  ------------------------------\r\n");
-        text.push_str("  Choose an option:\r\n");
-
-        let mut u16_buf = [0u16; 1024];
-        if let Ok(cstr) = uefi::CStr16::from_str_with_buf(&text, &mut u16_buf) {
-            let _ = uefi::system::with_stdout(|g| g.output_string(cstr));
-        }
 
         let key = loop {
             if let Ok(Some(k)) = input.read_key() {
