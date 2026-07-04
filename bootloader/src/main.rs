@@ -44,24 +44,24 @@ fn main() -> Status {
                 backup_entries();
                 boot_loader::boot_entry(&entry);
                 menu::show_status(&[
-                    ("Boot failed. Press any key for options...", uefi::proto::console::text::Color::Red),
+                    ("Boot failed. Press any key for options...", uefi::proto::console::text::Color::White),
                 ]);
                 boot_loader::wait_for_key();
             }
             menu::MenuResult::Manual => manual_boot(),
             menu::MenuResult::RestoreBackup => {
                 menu::show_status(&[
-                    ("Restoring backup...", uefi::proto::console::text::Color::Yellow),
+                    ("Restoring backup...", uefi::proto::console::text::Color::DarkGray),
                 ]);
                 if restore_entries() {
                     menu::show_status(&[
-                        ("Backup restored!", uefi::proto::console::text::Color::Green),
-                        ("Press any key to reboot...", uefi::proto::console::text::Color::White),
+                        ("Backup restored!", uefi::proto::console::text::Color::White),
+                        ("Press any key to reboot...", uefi::proto::console::text::Color::DarkGray),
                     ]);
                 } else {
                     menu::show_status(&[
-                        ("No backup found.", uefi::proto::console::text::Color::Red),
-                        ("Press any key to continue...", uefi::proto::console::text::Color::White),
+                        ("No backup found.", uefi::proto::console::text::Color::White),
+                        ("Press any key to continue...", uefi::proto::console::text::Color::DarkGray),
                     ]);
                 }
                 boot_loader::wait_for_key();
@@ -167,8 +167,8 @@ fn manual_boot_with_input(input: &mut Input) {
         }
         if !boot_loader::boot_entry(&entry) {
             menu::show_status(&[
-                ("Boot failed.", uefi::proto::console::text::Color::Red),
-                ("Press any key to continue...", uefi::proto::console::text::Color::White),
+                ("Boot failed.", uefi::proto::console::text::Color::White),
+                ("Press any key to continue...", uefi::proto::console::text::Color::DarkGray),
             ]);
             boot_loader::wait_for_key();
         }
