@@ -138,39 +138,38 @@ fn draw_line(g: &mut Output, text: &str, w: usize, color: Color, x: usize) {
     write_str(g, " │\r\n");
 }
 
-fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w: usize, x: usize) {
-    let marker = if selected { ">" } else { " " };
-    let num = format!("{}.", idx + 1);
+fn draw_entry_line(g: &mut Output, entry: &Entry, selected: bool, w: usize, x: usize) {
+    let prefix = if selected { "  > " } else { "    " };
     let counter = entry.boot_counter.map_or(String::new(), |c| {
         if c > 0 { format!(" [{}]", c) } else { String::new() }
     });
 
     let inner = w.saturating_sub(4);
-    let prefix = format!("  {} {}", marker, num);
-    let prefix_len = prefix.chars().count();
     let counter_len = counter.chars().count();
-    let avail = inner.saturating_sub(prefix_len + counter_len);
-    let title_len = entry.title.chars().count();
-    let left = if title_len < avail { (avail - title_len) / 2 } else { 0 };
-    let right = avail.saturating_sub(title_len + left);
+    let max_title = inner.saturating_sub(4 + counter_len);
+    let title_display: String = entry.title.chars().take(max_title).collect();
+    let tlen = title_display.chars().count();
+    let pad = max_title.saturating_sub(tlen);
+    let left = pad / 2;
+    let right = pad - left;
+
+    let bg = if selected { Color::LightGray } else { Color::Black };
 
     set_fg_bg(g, Color::White, Color::Black);
     indent(g, x);
     write_str(g, "│ ");
-    if selected {
-        set_fg_bg(g, Color::White, Color::LightGray);
-    }
-    write_str(g, &prefix);
+    set_fg_bg(g, Color::White, bg);
+    write_str(g, prefix);
     write_str(g, &" ".repeat(left));
-    write_str(g, &entry.title);
+    write_str(g, &title_display);
     write_str(g, &" ".repeat(right));
 
     if !counter.is_empty() {
-        set_fg_bg(g, Color::DarkGray, if selected { Color::LightGray } else { Color::Black });
+        set_fg_bg(g, Color::DarkGray, bg);
         write_str(g, &counter);
     }
 
-    set_fg_bg(g, Color::White, if selected { Color::LightGray } else { Color::Black });
+    set_fg_bg(g, Color::White, Color::Black);
     write_str(g, " │\r\n");
 }
 
@@ -420,12 +419,11 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         let foot2 = "f=firmware  r=reboot";
 
         let mut lines: Vec<String> = Vec::new();
-        for (i, e) in menu.entries.iter().enumerate() {
-            let marker = if i == menu.selected { " >" } else { "  " };
+        for e in &menu.entries {
             let counter = e.boot_counter.map_or(String::new(), |c| {
                 if c > 0 { format!(" [{}]", c) } else { String::new() }
             });
-            lines.push(format!("{}{}. {}{}", marker, i + 1, e.title, counter));
+            lines.push(format!("    {}{}", e.title, counter));
         }
 
         let w = box_width(cols, &title, &lines);
@@ -447,7 +445,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         draw_empty(g, w, start_x);
 
         for (i, entry) in menu.entries.iter().enumerate() {
-            draw_entry_line(g, entry, i, i == menu.selected, w, start_x);
+            draw_entry_line(g, entry, i == menu.selected, w, start_x);
         }
 
         draw_empty(g, w, start_x);
