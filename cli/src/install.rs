@@ -456,7 +456,7 @@ fn ensure_efibootmgr() -> bool {
         return true;
     }
 
-    cprintln!(YELLOW, "  efibootmgr not found. Attempting to install...");
+    cprintln!(CYAN, "  Installing efibootmgr...");
 
     let pm_commands: &[(&str, &[&str])] = &[
         ("pacman", &["-S", "--noconfirm", "efibootmgr"]),
@@ -470,7 +470,7 @@ fn ensure_efibootmgr() -> bool {
 
     for (pm, args) in pm_commands {
         if Command::new("which").arg(pm).output().is_ok() {
-            cprintln!(CYAN, "  Detected package manager: {}", pm);
+            cprintln!(DIM, "  Detected package manager: {}", pm);
             let status = Command::new(pm)
                 .args(*args)
                 .status()
@@ -479,7 +479,7 @@ fn ensure_efibootmgr() -> bool {
                     std::process::exit(1);
                 });
             if status.success() {
-                cprintln!(GREEN, "  efibootmgr installed.");
+                cprintln!(GREEN, "  Installed.");
                 return true;
             } else {
                 cprintln!(YELLOW, "  {} failed to install efibootmgr.", pm);
