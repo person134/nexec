@@ -436,6 +436,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
             let pad = inner.saturating_sub(s.chars().count());
             let left = pad / 2;
             let right = pad - left;
+            g.set_cursor_position(start_x, r).ok();
             set_fg_bg(g, Color::White, Color::Black);
             write_str(g, "│ ");
             set_fg_bg(g, Color::DarkGray, Color::Black);
@@ -447,6 +448,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
             r += 1;
         }
 
+        g.set_cursor_position(start_x, r).ok();
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
         set_fg_bg(g, Color::DarkGray, Color::Black);
@@ -457,6 +459,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         write_str(g, " │\r\n");
         r += 1;
 
+        g.set_cursor_position(start_x, r).ok();
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
         set_fg_bg(g, Color::DarkGray, Color::Black);
