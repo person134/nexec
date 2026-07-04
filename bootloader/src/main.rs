@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use uefi::boot;
@@ -11,7 +10,7 @@ use uefi::cstr16;
 use uefi::fs::FileSystem;
 use uefi::prelude::*;
 use uefi::println;
-use uefi::proto::console::text::{Input, Key, ScanCode};
+use uefi::proto::console::text::Input;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::CString16;
 
@@ -47,10 +46,18 @@ fn main() -> Status {
                 println!();
                 println!("Boot failed. Press any key for options...");
                 boot_loader::wait_for_key();
-                recovery_menu();
             }
             menu::MenuResult::Manual => manual_boot(),
-            menu::MenuResult::Recovery => recovery_menu(),
+            menu::MenuResult::RestoreBackup => {
+                println!("Restoring backup...");
+                if restore_entries() {
+                    println!("Backup restored. Press any key to reboot...");
+                } else {
+                    println!("No backup found. Press any key to continue...");
+                }
+                boot_loader::wait_for_key();
+                boot_loader::reset_system();
+            }
         }
     }
 }
@@ -169,116 +176,6 @@ fn manual_boot() {
         return;
     };
     manual_boot_with_input(input);
-}
-
-fn recovery_menu_with_input(input: &mut Input) {
-    let _ = input.reset(false);
-
-    loop {
-        let lines = [
-            "",
-            "  Recovery menu",
-            "  ------------------------------",
-            "  m  Manual boot (type an .efi path)",
-            "  b  Restore backup entries and retry",
-            "  r  Reboot",
-            "  f  Firmware setup",
-            "  s  Shutdown",
-            "  Esc  Back to boot menu",
-            "  ------------------------------",
-            "  Choose an option:",
-        ];
-
-        uefi::system::with_stdout(|g| {
-            let _ = g.clear();
-            let (cols, rows) = g
-                .current_mode()
-                .ok()
-                .flatten()
-                .map(|m| (m.columns(), m.rows()))
-                .unwrap_or((80, 25));
-            let start_y = if lines.len() < rows { (rows - lines.len()) / 2 } else { 1 };
-            let _ = g.set_cursor_position(0, start_y);
-
-            let mut text = String::new();
-            for line in &lines {
-                let width = line.chars().count();
-                let fill = cols.saturating_sub(1);
-                let pad_x = if width < fill { (fill - width) / 2 } else { 0 };
-                for _ in 0..pad_x {
-                    text.push(' ');
-                }
-                text.push_str(line);
-                text.push_str("\r\n");
-            }
-
-            let mut u16_buf = [0u16; 2048];
-            if let Ok(cstr) = uefi::CStr16::from_str_with_buf(&text, &mut u16_buf) {
-                let _ = g.output_string(cstr);
-            }
-        });
-
-        let key = loop {
-            if let Ok(Some(k)) = input.read_key() {
-                break k;
-            }
-            boot::stall(core::time::Duration::from_millis(10));
-        };
-
-        if key == Key::Special(ScanCode::ESCAPE) {
-            return;
-        }
-
-        if let Key::Printable(c) = key {
-            let c_val: u16 = c.into();
-            if c_val == b'm' as u16 || c_val == b'M' as u16 {
-                manual_boot_with_input(input);
-                continue;
-            } else if c_val == b'b' as u16 || c_val == b'B' as u16 {
-                uefi::system::with_stdout(|g| {
-                    let _ = g.clear();
-                });
-                println!("Restoring backup...");
-                if restore_entries() {
-                    println!("Backup restored. Press any key to reboot...");
-                } else {
-                    println!("No backup found. Press any key to continue...");
-                }
-                boot_loader::wait_for_key();
-                boot_loader::reset_system();
-            } else if c_val == b'r' as u16 || c_val == b'R' as u16 {
-                boot_loader::reset_system();
-            } else if c_val == b'f' as u16 || c_val == b'F' as u16 {
-                unsafe {
-                    let _ = boot::exit(
-                        boot::image_handle(),
-                        uefi::Status::SUCCESS,
-                        0,
-                        core::ptr::null_mut(),
-                    );
-                }
-            } else if c_val == b's' as u16 || c_val == b'S' as u16 {
-                uefi::runtime::reset(
-                    uefi::runtime::ResetType::SHUTDOWN,
-                    uefi::Status::SUCCESS,
-                    None,
-                );
-            }
-        }
-    }
-}
-
-fn recovery_menu() {
-    let mut guard: Option<boot::ScopedProtocol<Input>>;
-    let input: &mut Input = if let Ok((g, _)) = boot_loader::find_input() {
-        guard = Some(g);
-        guard.as_mut().unwrap()
-    } else if let Some(s) = get_stdin_system() {
-        s
-    } else {
-        boot_loader::reset_system()
-    };
-    recovery_menu_with_input(input);
 }
 
 fn ensure_backup_dir() {

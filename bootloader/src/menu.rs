@@ -38,14 +38,14 @@ impl DerefMut for MenuInput<'_> {
 pub enum MenuResult {
     Boot(Entry),
     Manual,
-    Recovery,
+    RestoreBackup,
 }
 
 enum KeyAction {
     Nothing,
     Boot,
     Manual,
-    Recovery,
+    RestoreBackup,
 }
 
 pub struct Menu {
@@ -179,7 +179,7 @@ impl Menu {
                             return MenuResult::Boot(self.entries[self.selected].clone())
                         }
                         KeyAction::Manual => return MenuResult::Manual,
-                        KeyAction::Recovery => return MenuResult::Recovery,
+                        KeyAction::RestoreBackup => return MenuResult::RestoreBackup,
                         KeyAction::Nothing => {}
                     }
                 }
@@ -190,7 +190,7 @@ impl Menu {
                             return MenuResult::Boot(self.entries[self.selected].clone())
                         }
                         KeyAction::Manual => return MenuResult::Manual,
-                        KeyAction::Recovery => return MenuResult::Recovery,
+                        KeyAction::RestoreBackup => return MenuResult::RestoreBackup,
                         KeyAction::Nothing => {}
                     }
                 }
@@ -256,12 +256,12 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         add_line("-------------------------------");
         if remaining > 0 {
             add_line(&alloc::format!(
-                "Boot default in {}s  \u{2191}\u{2193} Enter: boot  m: manual  r: recovery  f: firmware",
+                "Boot default in {}s  \u{2191}\u{2193} Enter: boot  m: manual  b: backups  f: firmware  r: reboot",
                 remaining / 10
             ));
         } else {
             add_line(
-                "\u{2191}\u{2193} Enter: boot  m: manual  r: recovery  f: firmware",
+                "\u{2191}\u{2193} Enter: boot  m: manual  b: backups  f: firmware  r: reboot",
             );
         }
 
@@ -382,11 +382,14 @@ fn handle_key(key: Key, menu: &mut Menu) -> KeyAction {
             if c_val == b'f' as u16 || c_val == b'F' as u16 {
                 boot_firmware();
             }
-            if c_val == b'm' as u16 || c_val == b'M' as u16 {
+            if c_val == b'm' as u16 || c_val == b'M' as u16 || c_val == b',' as u16 {
                 return KeyAction::Manual;
             }
+            if c_val == b'b' as u16 || c_val == b'B' as u16 {
+                return KeyAction::RestoreBackup;
+            }
             if c_val == b'r' as u16 || c_val == b'R' as u16 {
-                return KeyAction::Recovery;
+                crate::boot_loader::reset_system();
             }
             if c_val >= b'1' as u16 && c_val <= b'9' as u16 {
                 let idx = (c_val - b'1' as u16) as usize;
