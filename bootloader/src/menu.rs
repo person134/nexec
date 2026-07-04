@@ -147,8 +147,12 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
 
     let inner = w.saturating_sub(4);
     let prefix = format!("  {} {}", marker, num);
-    let full = format!("{} {}{}", prefix, entry.title, counter);
-    let flen = full.chars().count();
+    let prefix_len = prefix.chars().count();
+    let counter_len = counter.chars().count();
+    let avail = inner.saturating_sub(prefix_len + counter_len);
+    let title_len = entry.title.chars().count();
+    let left = if title_len < avail { (avail - title_len) / 2 } else { 0 };
+    let right = avail.saturating_sub(title_len + left);
 
     set_fg_bg(g, Color::White, Color::Black);
     indent(g, x);
@@ -157,21 +161,16 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
         set_fg_bg(g, Color::White, Color::LightGray);
     }
     write_str(g, &prefix);
-    write_str(g, " ");
+    write_str(g, &" ".repeat(left));
     write_str(g, &entry.title);
+    write_str(g, &" ".repeat(right));
 
     if !counter.is_empty() {
         set_fg_bg(g, Color::DarkGray, if selected { Color::LightGray } else { Color::Black });
         write_str(g, &counter);
     }
 
-    let pad = inner.saturating_sub(flen);
-    if pad > 0 {
-        set_fg_bg(g, Color::White, if selected { Color::LightGray } else { Color::Black });
-        write_str(g, &" ".repeat(pad));
-    }
-
-    set_fg_bg(g, Color::White, Color::Black);
+    set_fg_bg(g, Color::White, if selected { Color::LightGray } else { Color::Black });
     write_str(g, " │\r\n");
 }
 
@@ -461,7 +460,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
             indent(g, start_x);
             set_fg_bg(g, Color::White, Color::Black);
             write_str(g, "│ ");
-            set_fg_bg(g, Color::DarkGray, Color::Black);
+            set_fg_bg(g, Color::White, Color::Black);
             write_str(g, &" ".repeat(left));
             write_str(g, s);
             write_str(g, &" ".repeat(right));
@@ -472,7 +471,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         indent(g, start_x);
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
-        set_fg_bg(g, Color::DarkGray, Color::Black);
+        set_fg_bg(g, Color::White, Color::Black);
         write_str(g, " ");
         write_str(g, foot1);
         write_str(g, &" ".repeat(inner.saturating_sub(foot1.chars().count() + 1)));
@@ -482,7 +481,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         indent(g, start_x);
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
-        set_fg_bg(g, Color::DarkGray, Color::Black);
+        set_fg_bg(g, Color::White, Color::Black);
         write_str(g, " ");
         write_str(g, foot2);
         write_str(g, &" ".repeat(inner.saturating_sub(foot2.chars().count() + 1)));
