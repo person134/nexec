@@ -13,7 +13,7 @@ use uefi::Identify;
 use crate::config::{Config, Entry};
 use crate::util;
 
-const VERSION: &str = "2.0.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 enum MenuInput<'a> {
     Owned(boot::ScopedProtocol<Input>),

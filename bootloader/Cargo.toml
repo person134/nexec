@@ -1,6 +1,6 @@
 [package]
 name = "hboot-efi"
-version = "2.0.0"
+version = "2.2.0"
 edition = "2024"
 description = "hboot UEFI boot manager"
 license = "MIT"
