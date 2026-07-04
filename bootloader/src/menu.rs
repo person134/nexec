@@ -495,6 +495,22 @@ fn draw_menu(menu: &Menu, remaining: u64) {
     });
 }
 
+fn azerty_to_qwerty(c: u16) -> u16 {
+    match c {
+        113 => 97,   // q → a
+        81  => 65,   // Q → A
+        97  => 113,  // a → q
+        65  => 81,   // A → Q
+        119 => 122,  // w → z
+        87  => 90,   // W → Z
+        122 => 119,  // z → w
+        90  => 87,   // Z → W
+        44  => 109,  // , → m
+        109 => 44,   // m → ,
+        _ => c,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Manual boot prompt
 // ---------------------------------------------------------------------------
@@ -540,7 +556,7 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
         let Some(key) = read_key_blocking(input) else { continue };
         match key {
             Key::Printable(c) => {
-                let c_val: u16 = c.into();
+                let c_val: u16 = azerty_to_qwerty(c.into());
                 if c_val == b'\r' as u16 || c_val == b'\n' as u16 {
                     if !buf.is_empty() {
                         let path = core::str::from_utf8(&buf).unwrap_or("").to_string();
@@ -626,14 +642,14 @@ fn handle_key(key: Key, menu: &mut Menu) -> KeyAction {
             menu.selected = menu.entries.len().saturating_sub(1);
         }
         Key::Printable(c) => {
-            let c_val: u16 = c.into();
+            let c_val: u16 = azerty_to_qwerty(c.into());
             if (c_val == b'\r' as u16 || c_val == b'\n' as u16) && !menu.entries.is_empty() {
                 return KeyAction::Boot;
             }
             if c_val == b'f' as u16 || c_val == b'F' as u16 {
                 boot_firmware();
             }
-            if c_val == b'm' as u16 || c_val == b'M' as u16 || c_val == b',' as u16 {
+            if c_val == b'm' as u16 || c_val == b'M' as u16 {
                 return KeyAction::Manual;
             }
             if c_val == b'b' as u16 || c_val == b'B' as u16 {
