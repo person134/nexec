@@ -28,7 +28,10 @@ pub fn list(esp: Option<String>) {
     println!("-------------------------------");
 
     let mut files: Vec<_> = std::fs::read_dir(dir_path)
-        .unwrap()
+        .unwrap_or_else(|e| {
+            eprintln!("error: failed to read {}: {}", dir, e);
+            std::process::exit(1);
+        })
         .filter_map(|e| e.ok())
         .filter(|e| {
             let n = e.file_name();

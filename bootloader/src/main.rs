@@ -77,7 +77,10 @@ fn decrement_boot_counter(entry: &config::Entry) {
 
     let plus = match name_part.rfind('+') {
         Some(p) => p,
-        None => return,
+        None => {
+            println!("decrement_boot_counter: no '+' in filename '{}'", source);
+            return;
+        }
     };
     let base = &name_part[..plus];
 
@@ -89,24 +92,39 @@ fn decrement_boot_counter(entry: &config::Entry) {
 
     let fs = match get_fs() {
         Ok(f) => f,
-        Err(_) => return,
+        Err(e) => {
+            println!("decrement_boot_counter: {}", e);
+            return;
+        }
     };
     let mut fs = fs;
 
     let cstr_old = match CString16::try_from(source.as_str()) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(_) => {
+            println!("decrement_boot_counter: invalid path '{}'", source);
+            return;
+        }
     };
     let content = match fs.read(cstr_old.as_ref()) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(_) => {
+            println!("decrement_boot_counter: failed to read '{}'", source);
+            return;
+        }
     };
 
     let cstr_new = match CString16::try_from(new_name.as_str()) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(_) => {
+            println!("decrement_boot_counter: invalid new path '{}'", new_name);
+            return;
+        }
     };
-    let _ = fs.write(cstr_new.as_ref(), &content);
+    if fs.write(cstr_new.as_ref(), &content).is_err() {
+        println!("decrement_boot_counter: failed to write '{}'", new_name);
+        return;
+    }
 
     // Delete old file using a separate protocol handle
     if let Ok(mut sfsp) = boot::get_image_file_system(boot::image_handle()) {
@@ -201,7 +219,7 @@ fn recovery_menu() {
                 boot_loader::reset_system();
             } else if c_val == b'f' as u16 || c_val == b'F' as u16 {
                 unsafe {
-                    boot::exit(
+                    let _ = boot::exit(
                         boot::image_handle(),
                         uefi::Status::SUCCESS,
                         0,

@@ -31,7 +31,11 @@ timeout = 5
         Path::new(&output).join("hboot.conf")
     };
 
-    std::fs::create_dir_all(main_path.parent().unwrap()).unwrap_or_else(|e| {
+    let parent = main_path.parent().unwrap_or_else(|| {
+        eprintln!("error: invalid output path with no parent directory");
+        std::process::exit(1);
+    });
+    std::fs::create_dir_all(parent).unwrap_or_else(|e| {
         eprintln!("error: failed to create directories: {}", e);
         std::process::exit(1);
     });
@@ -151,9 +155,19 @@ fn find_initrd(kernel: &Path) -> Option<PathBuf> {
 /// Convert an absolute path like /boot/vmlinuz-linux to an ESP-relative
 /// UEFI path like \vmlinuz-linux, by stripping the ESP mount prefix.
 fn to_efi_path(abs_path: &Path, esp: &Path) -> Option<String> {
-    let abs = abs_path.canonicalize().ok()?;
     let esp_canon = esp.canonicalize().ok()?;
-    let rest = abs.strip_prefix(&esp_canon).ok()?;
+    let esp_raw = if esp.is_absolute() { Some(esp.to_path_buf()) } else { std::path::absolute(esp).ok() };
+
+    // Try to canonicalize the file path too; if it fails, use as-is.
+    let abs = abs_path.canonicalize().unwrap_or_else(|_| abs_path.to_path_buf());
+
+    // Try stripping ESP prefix, trying multiple path combinations.
+    // This handles symlinks and bind mounts where canonical paths may differ.
+    let rest = abs.strip_prefix(&esp_canon).ok()
+        .or_else(|| esp_raw.as_ref().and_then(|p| abs.strip_prefix(p).ok()))
+        .or_else(|| abs_path.strip_prefix(&esp_canon).ok())
+        .or_else(|| esp_raw.as_ref().and_then(|p| abs_path.strip_prefix(p).ok()))?;
+
     let components: Vec<_> = rest.components().map(|c| c.as_os_str().to_string_lossy()).collect();
     if components.is_empty() {
         return None;

@@ -391,7 +391,7 @@ fn handle_key(key: Key, menu: &mut Menu) -> KeyAction {
 
 fn boot_firmware() {
     unsafe {
-        boot::exit(
+        let _ = boot::exit(
             boot::image_handle(),
             uefi::Status::SUCCESS,
             0,

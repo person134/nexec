@@ -13,6 +13,9 @@ const DIM: &str = "\x1b[2m";
 const BOOTLOADER_DIR: &str = "bootloader";
 const EFI_FILENAME: &str = "hboot-efi.efi";
 const EFI_INSTALL_DIR: &str = "/EFI/hboot/hboot-efi.efi";
+const CLI_INSTALL_PATH: &str = "/usr/bin/hboot";
+const ESP_CANDIDATES: &[&str] = &["/boot", "/efi", "/boot/efi"];
+const SYS_MOUNTS: &str = "/proc/mounts";
 const RELEASE_URL: &str = "https://github.com/person134/hboot/releases/latest/download";
 
 macro_rules! cprintln {
@@ -139,13 +142,12 @@ pub fn install(args: InstallArgs) {
         cprintln!(YELLOW, "warning: could not determine binary path: {}", e);
         std::process::exit(1);
     });
-    let cli_dest = "/usr/bin/hboot";
-    let _ = std::fs::remove_file(cli_dest);
-    std::fs::copy(&self_path, cli_dest).unwrap_or_else(|e| {
-        eprintln!("\x1b[31merror:{} failed to copy to {}: {} (try running as root)", RESET, cli_dest, e);
+    let _ = std::fs::remove_file(CLI_INSTALL_PATH);
+    std::fs::copy(&self_path, CLI_INSTALL_PATH).unwrap_or_else(|e| {
+        eprintln!("\x1b[31merror:{} failed to copy to {}: {} (try running as root)", RESET, CLI_INSTALL_PATH, e);
         std::process::exit(1);
     });
-    cprintln!(GREEN, "  Installed CLI to {}", cli_dest);
+    cprintln!(GREEN, "  Installed CLI to {}", CLI_INSTALL_PATH);
 
     // 6. Write auto-generated config with detected entries
     if !no_config {
@@ -355,9 +357,9 @@ fn build_bootloader() -> Result<String, String> {
 
 pub(crate) fn detect_esp() -> Option<String> {
     // Common ESP mount points
-    for candidate in &["/boot", "/efi", "/boot/efi"] {
+    for candidate in ESP_CANDIDATES {
         if Path::new(candidate).is_dir() {
-            if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+            if let Ok(mounts) = std::fs::read_to_string(SYS_MOUNTS) {
                 for line in mounts.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 3 && parts[1] == *candidate {
@@ -399,19 +401,47 @@ fn resolve_esp_disk_part(
     }
 
     let real_esp = std::path::absolute(esp).unwrap_or_else(|_| Path::new(esp).to_path_buf());
-    let real_esp = real_esp.to_string_lossy();
 
-    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+    // Use lsblk to resolve device by mountpoint — handles symlinks, LVM, etc.
+    if let Ok(output) = Command::new("lsblk")
+        .args(["-pno", "NAME,MAJ:MIN", &real_esp.to_string_lossy()])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let first_line = stdout.lines().next().unwrap_or("");
+            let dev = first_line.split_whitespace().next().unwrap_or("").trim();
+            if !dev.is_empty() {
+                // Resolve through symlinks to get the real device
+                let real_dev = std::fs::canonicalize(dev).unwrap_or_else(|_| Path::new(dev).to_path_buf());
+                let dev_str = real_dev.to_string_lossy();
+
+                // Extract trailing digits as partition number
+                let digits: String = dev_str.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+                if !digits.is_empty() {
+                    let part_num: u32 = digits.chars().rev().collect::<String>().parse().unwrap_or(1);
+                    let dev_base = dev_str.trim_end_matches(&digits.chars().rev().collect::<String>());
+                    // Handle nvme and mmc naming: nvme0n1p1 -> nvme0n1, mmcblk0p1 -> mmcblk0
+                    let disk_name = dev_base.strip_suffix('p').unwrap_or(dev_base).to_string();
+                    return (disk_name, part_num);
+                }
+            }
+        }
+    }
+
+    // Fallback: parse /proc/mounts
+    let real_esp_str = real_esp.to_string_lossy();
+    if let Ok(mounts) = std::fs::read_to_string(SYS_MOUNTS) {
         for line in mounts.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 && parts[1] == real_esp.as_ref() {
+            if parts.len() >= 2 && parts[1] == real_esp_str.as_ref() {
                 let dev = parts[0];
-                // Extract partition number and base disk
-                if let Ok(part_num) = dev.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect::<String>().parse::<u32>() {
-                    let dev_base = dev.trim_end_matches(&part_num.to_string());
-                    // Handle nvme naming (nvme0n1p1 -> nvme0n1, part 1)
-                    let disk_name = dev_base.strip_suffix('p').unwrap_or(dev_base);
-                    return (disk_name.to_string(), part_num);
+                let digits: String = dev.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+                if !digits.is_empty() {
+                    let part_num: u32 = digits.chars().rev().collect::<String>().parse().unwrap_or(1);
+                    let dev_base = dev.trim_end_matches(&digits.chars().rev().collect::<String>());
+                    let disk_name = dev_base.strip_suffix('p').unwrap_or(dev_base).to_string();
+                    return (disk_name, part_num);
                 }
             }
         }
@@ -585,15 +615,14 @@ pub fn remove(esp_path: Option<String>, no_efi: bool, all: bool, remove_self: bo
 
     // 5. Remove the CLI binary itself
     if remove_self {
-        let cli_path = "/usr/bin/hboot";
-        if Path::new(cli_path).exists() {
-            std::fs::remove_file(cli_path).unwrap_or_else(|e| {
-                cprintln!(YELLOW, "warning: failed to remove {}: {}", cli_path, e);
+        if Path::new(CLI_INSTALL_PATH).exists() {
+            std::fs::remove_file(CLI_INSTALL_PATH).unwrap_or_else(|e| {
+                cprintln!(YELLOW, "warning: failed to remove {}: {}", CLI_INSTALL_PATH, e);
             });
-            cprintln!(GREEN, "  Removed: {}", cli_path);
+            cprintln!(GREEN, "  Removed: {}", CLI_INSTALL_PATH);
             removed_anything = true;
         } else {
-            cprintln!(DIM, "  Not found: {}", cli_path);
+            cprintln!(DIM, "  Not found: {}", CLI_INSTALL_PATH);
         }
     }
 

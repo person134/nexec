@@ -1,12 +1,12 @@
 [package]
 name = "hboot-efi"
-version = "1.1.0"
-edition = "2021"
+version = "1.2.0"
+edition = "2024"
 description = "hboot UEFI boot manager"
 license = "MIT"
 autotests = false
 
 [dependencies]
 hboot-config = { path = "../hboot-config" }
-uefi = { version = "0.37", features = ["global_allocator", "logger", "panic_handler", "alloc"] }
+uefi = { version = "0.38", features = ["global_allocator", "logger", "panic_handler", "alloc"] }
 log = "0.4"
