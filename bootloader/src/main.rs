@@ -29,6 +29,7 @@ fn main() -> Status {
     let recovery_timeout = cfg.as_ref().map_or(5, |c| c.recovery_timeout);
     if check_recovery_key(recovery_timeout) {
         cfg = load_config();
+        recovery_menu();
     }
     let cfg = cfg.unwrap_or_else(|| config::Config {
         default: None,
