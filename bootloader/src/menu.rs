@@ -500,7 +500,7 @@ fn draw_menu(menu: &Menu, remaining: u64) {
 // ---------------------------------------------------------------------------
 
 pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
-    uefi::system::with_stdout(|g| {
+    let (start_x, start_y) = uefi::system::with_stdout(|g| {
         let (cols, rows) = g.current_mode().ok().flatten()
             .map(|m| (m.columns(), m.rows()))
             .unwrap_or((80, 25));
@@ -529,7 +529,11 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
         draw_empty(g, w, start_x);
         draw_line(g, "Enter to boot, Esc to go back", w, Color::DarkGray, start_x);
         draw_bottom(g, w, start_x);
+        (start_x, start_y)
     });
+
+    let input_col_start = start_x + 4;
+    let input_row = start_y + 5;
 
     let mut buf: Vec<u8> = Vec::new();
     loop {
@@ -552,18 +556,23 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
                         });
                     }
                 } else if c_val == 8 || c_val == 127 {
-                    buf.pop();
-                    uefi::system::with_stdout(|g| {
-                        let _ = g.output_string(cstr16!("\x08 \x08"));
-                    });
+                    if !buf.is_empty() {
+                        buf.pop();
+                        uefi::system::with_stdout(|g| {
+                            g.set_cursor_position(input_col_start + buf.len(), input_row).ok();
+                            let _ = g.output_string(cstr16!(" "));
+                        });
+                    }
                 } else if (32..=126).contains(&c_val) {
-                    buf.push(c_val as u8);
+                    let col = input_col_start + buf.len();
                     let pair = [c_val as u16, 0];
-                    let _ = uefi::system::with_stdout(|g| {
+                    uefi::system::with_stdout(|g| {
+                        g.set_cursor_position(col, input_row).ok();
                         if let Ok(cs) = uefi::CStr16::from_u16_with_nul(&pair) {
                             let _ = g.output_string(cs);
                         }
                     });
+                    buf.push(c_val as u8);
                 }
             }
             Key::Special(sc) if sc == ScanCode::ESCAPE => return None,
