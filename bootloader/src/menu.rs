@@ -135,10 +135,15 @@ impl Menu {
     }
 
     pub fn run(&mut self) -> MenuResult {
+        // timeout = 0: skip UI and boot the default/first entry immediately
+        if self.timeout == 0 {
+            return self.entries.get(self.selected).cloned()
+                .map(MenuResult::Boot)
+                .unwrap_or(MenuResult::Manual);
+        }
         match Self::open_any_input() {
             Some(mut input) => self.run_with_input(&mut input),
             None => {
-                // No input device found, just boot the first entry
                 self.entries.first().cloned().map(MenuResult::Boot).unwrap_or(MenuResult::Manual)
             }
         }
