@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use uefi::boot;
@@ -10,7 +11,7 @@ use uefi::cstr16;
 use uefi::fs::FileSystem;
 use uefi::prelude::*;
 use uefi::println;
-use uefi::proto::console::text::{Input, Key};
+use uefi::proto::console::text::Input;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::CString16;
 
@@ -25,13 +26,7 @@ fn main() -> Status {
     uefi::helpers::init().unwrap();
     log::set_max_level(log::LevelFilter::Off);
 
-    let mut cfg = load_config();
-    let recovery_timeout = cfg.as_ref().map_or(5, |c| c.recovery_timeout);
-    if check_recovery_key(recovery_timeout) {
-        cfg = load_config();
-        recovery_menu();
-    }
-    let cfg = cfg.unwrap_or_else(|| config::Config {
+    let cfg = load_config().unwrap_or_else(|| config::Config {
         default: None,
         timeout: 5,
         recovery_timeout: 5,
@@ -47,17 +42,16 @@ fn main() -> Status {
     loop {
         match menu.run() {
             menu::MenuResult::Boot(entry) => {
-                // Decrement boot counter before booting
                 decrement_boot_counter(&entry);
                 backup_entries();
                 boot_loader::boot_entry(&entry);
-                // Only reached on failure
                 println!();
                 println!("Boot failed. Press any key for options...");
                 boot_loader::wait_for_key();
                 recovery_menu();
             }
-                menu::MenuResult::Manual => manual_boot(),
+            menu::MenuResult::Manual => manual_boot(),
+            menu::MenuResult::Recovery => recovery_menu(),
         }
     }
 }
@@ -150,6 +144,19 @@ fn get_stdin_system() -> Option<&'static mut Input> {
     Some(unsafe { &mut *(st.stdin.cast::<Input>()) })
 }
 
+fn manual_boot_with_input(input: &mut Input) {
+    let _ = input.reset(false);
+    if let Some(entry) = menu::prompt_manual(input) {
+        if entry.efi_path.is_empty() {
+            return;
+        }
+        if !boot_loader::boot_entry(&entry) {
+            println!("Boot failed. Press any key to continue...");
+            boot_loader::wait_for_key();
+        }
+    }
+}
+
 fn manual_boot() {
     let mut fallback_guard: Option<boot::ScopedProtocol<Input>>;
     let input: &mut Input = if let Ok((guard, _)) = boot_loader::find_input() {
@@ -162,42 +169,33 @@ fn manual_boot() {
         boot_loader::wait_for_key();
         return;
     };
-    let _ = input.reset(false);
-
-    if let Some(entry) = menu::prompt_manual(input) {
-        if entry.efi_path.is_empty() {
-            return;
-        }
-        if !boot_loader::boot_entry(&entry) {
-            println!("Boot failed. Press any key to continue...");
-            boot_loader::wait_for_key();
-        }
-    }
+    manual_boot_with_input(input);
 }
 
-fn recovery_menu() {
-    let mut guard: Option<boot::ScopedProtocol<Input>>;
-    let input: &mut Input = if let Ok((g, _)) = boot_loader::find_input() {
-        guard = Some(g);
-        guard.as_mut().unwrap()
-    } else if let Some(s) = get_stdin_system() {
-        s
-    } else {
-        boot_loader::reset_system()
-    };
-
+fn recovery_menu_with_input(input: &mut Input) {
     let _ = input.reset(false);
 
     loop {
-        println!();
-        println!("===============================");
-        println!("Recovery menu - what now?");
-        println!("  m  Manual boot (type an .efi path)");
-        println!("  b  Restore backup entries and retry");
-        println!("  r  Reboot");
-        println!("  f  Firmware setup");
-        println!("  s  Shutdown");
-        println!("-------------------------------");
+        uefi::system::with_stdout(|g| {
+            let _ = g.clear();
+        });
+
+        let mut text = String::new();
+        text.push_str("\r\n");
+        text.push_str("  Recovery menu\r\n");
+        text.push_str("  ------------------------------\r\n");
+        text.push_str("  m  Manual boot (type an .efi path)\r\n");
+        text.push_str("  b  Restore backup entries and retry\r\n");
+        text.push_str("  r  Reboot\r\n");
+        text.push_str("  f  Firmware setup\r\n");
+        text.push_str("  s  Shutdown\r\n");
+        text.push_str("  ------------------------------\r\n");
+        text.push_str("  Choose an option:\r\n");
+
+        let mut u16_buf = [0u16; 1024];
+        if let Ok(cstr) = uefi::CStr16::from_str_with_buf(&text, &mut u16_buf) {
+            let _ = uefi::system::with_stdout(|g| g.output_string(cstr));
+        }
 
         let key = loop {
             if let Ok(Some(k)) = input.read_key() {
@@ -209,9 +207,12 @@ fn recovery_menu() {
         if let uefi::proto::console::text::Key::Printable(c) = key {
             let c_val: u16 = c.into();
             if c_val == b'm' as u16 || c_val == b'M' as u16 {
-                manual_boot();
+                manual_boot_with_input(input);
                 continue;
             } else if c_val == b'b' as u16 || c_val == b'B' as u16 {
+                uefi::system::with_stdout(|g| {
+                    let _ = g.clear();
+                });
                 println!("Restoring backup...");
                 if restore_entries() {
                     println!("Backup restored. Press any key to reboot...");
@@ -242,38 +243,17 @@ fn recovery_menu() {
     }
 }
 
-fn check_recovery_key(timeout_secs: u64) -> bool {
-    if timeout_secs == 0 {
-        return false;
-    }
-    let input = match get_stdin_system() {
-        Some(i) => i,
-        None => return false,
+fn recovery_menu() {
+    let mut guard: Option<boot::ScopedProtocol<Input>>;
+    let input: &mut Input = if let Ok((g, _)) = boot_loader::find_input() {
+        guard = Some(g);
+        guard.as_mut().unwrap()
+    } else if let Some(s) = get_stdin_system() {
+        s
+    } else {
+        boot_loader::reset_system()
     };
-    let _ = input.reset(false);
-
-    let iterations = timeout_secs * 100;
-    println!("Press r for recovery ({}s)...", timeout_secs);
-
-    for _ in 0..iterations {
-        if let Ok(Some(key)) = input.read_key() {
-            if let Key::Printable(c) = key {
-                let c_val: u16 = c.into();
-                if c_val == b'r' as u16 || c_val == b'R' as u16 {
-                    println!();
-                    println!("Recovery key pressed. Restoring backup...");
-                    if restore_entries() {
-                        println!("Backup restored from /EFI/hboot/backup/entries/");
-                    } else {
-                        println!("No backup found at /EFI/hboot/backup/entries/");
-                    }
-                    return true;
-                }
-            }
-        }
-        boot::stall(core::time::Duration::from_millis(10));
-    }
-    false
+    recovery_menu_with_input(input);
 }
 
 fn ensure_backup_dir() {
