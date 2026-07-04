@@ -12,8 +12,9 @@ sudo ./hboot install
 ```
 
 On first run, `hboot install` automatically installs `efibootmgr` (via
-`pacman`, `apt`, `dnf`, `zypper`, `apk`, `yum`, or `emerge`) if missing —
-no manual dependency setup needed.
+`pacman`, `apt`, `dnf`, `zypper`, `apk`, `yum`, or `emerge`) if missing.
+Manual installation of `efibootmgr` is only required if `hboot install`
+can't find the package manager. 
 
 Reboot and pick **hboot** from your UEFI boot menu.
 
