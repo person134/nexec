@@ -9,6 +9,7 @@ use uefi::CString16;
 
 use crate::config::Entry;
 use crate::config::Config;
+use crate::util;
 
 pub fn scan_esp() -> Vec<Entry> {
     let mut fs = match get_fs() {
@@ -23,7 +24,7 @@ pub fn scan_esp() -> Vec<Entry> {
         entries.push(Entry {
             name: "windows".into(),
             title: "Windows".into(),
-            efi_path: "/EFI/Microsoft/Boot/bootmgfw.efi".into(),
+            efi_path: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi".into(),
             options: None,
             initrd: Vec::new(),
             boot_counter: None,
@@ -69,7 +70,7 @@ fn scan_ukis(fs: &mut FileSystem) -> Result<Vec<Entry>, &'static str> {
         let name = entry.file_name();
         let name_str = name.to_string();
         if name_str.ends_with(".efi") || name_str.ends_with(".EFI") {
-            let path = alloc::format!("/EFI/Linux/{}", name_str);
+            let path = alloc::format!("\\EFI\\Linux\\{}", name_str);
             let display = name_str.trim_end_matches(".efi").trim_end_matches(".EFI").replace('-', " ");
             let title: String = display
                 .split_whitespace()
@@ -118,7 +119,7 @@ fn scan_kernels(fs: &mut FileSystem) -> Result<Vec<Entry>, &'static str> {
         };
 
         if let Some(ver) = version {
-            let efi_path = alloc::format!("/{}", name_str);
+            let efi_path = alloc::format!("\\{}", name_str);
             let entry_name = if ver.is_empty() {
                 "linux".into()
             } else {
@@ -152,7 +153,8 @@ fn scan_kernels(fs: &mut FileSystem) -> Result<Vec<Entry>, &'static str> {
 }
 
 fn find_microcode(fs: &mut FileSystem) -> Option<String> {
-    for candidate in ["/intel-ucode.img", "/amd-ucode.img"] {
+    let candidates = ["\\intel-ucode.img", "\\amd-ucode.img"];
+    for &candidate in &candidates {
         let cstr = CString16::try_from(candidate).ok()?;
         if fs.try_exists(&*cstr).unwrap_or(false) {
             return Some(candidate.into());
@@ -180,8 +182,9 @@ fn scan_bls_entries(fs: &mut FileSystem) -> Result<Vec<Entry>, &'static str> {
         }
         let raw_name = name_str.trim_end_matches(".conf").trim_end_matches(".CONF");
         let entry_name = raw_name.split('+').next().unwrap_or(raw_name);
-        let full_path = alloc::format!("/loader/entries/{}", name_str);
-        let cstr = CString16::try_from(full_path.as_str()).map_err(|_| "bad bls path")?;
+        let full_path = alloc::format!("\\loader\\entries\\{}", name_str);
+        let normalized = util::normalize_path(&full_path);
+        let cstr = CString16::try_from(normalized.as_str()).map_err(|_| "bad bls path")?;
         if let Ok(data) = fs.read(cstr.as_ref()) {
             if let Ok(parsed) = Config::parse_bls_entry(entry_name, &data) {
                 entries.push(parsed);
@@ -194,20 +197,21 @@ fn scan_bls_entries(fs: &mut FileSystem) -> Result<Vec<Entry>, &'static str> {
 fn find_initrd(fs: &mut FileSystem, version: &str) -> Vec<String> {
     let candidates: Vec<alloc::string::String> = if version.is_empty() {
         Vec::from([
-            alloc::string::String::from("/initramfs-linux.img"),
-            alloc::string::String::from("/initrd.img"),
-            alloc::string::String::from("/initramfs.img"),
+            alloc::string::String::from("\\initramfs-linux.img"),
+            alloc::string::String::from("\\initrd.img"),
+            alloc::string::String::from("\\initramfs.img"),
         ])
     } else {
         Vec::from([
-            alloc::format!("/initramfs-{}.img", version),
-            alloc::format!("/initrd.img-{}", version),
-            alloc::format!("/initramfs-{}-generic.img", version),
+            alloc::format!("\\initramfs-{}.img", version),
+            alloc::format!("\\initrd.img-{}", version),
+            alloc::format!("\\initramfs-{}-generic.img", version),
         ])
     };
 
     for p in &candidates {
-        if let Ok(cstr) = CString16::try_from(p.as_str()) {
+        let normalized = util::normalize_path(p);
+        if let Ok(cstr) = CString16::try_from(normalized.as_str()) {
             if fs.try_exists(&*cstr).unwrap_or(false) {
                 return vec![p.clone()];
             }

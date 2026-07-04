@@ -11,6 +11,7 @@ use uefi::CString16;
 use uefi::Identify;
 
 use crate::config::Entry;
+use crate::util;
 
 pub fn boot_entry(entry: &Entry) -> bool {
     // Read the kernel file into memory and load via FromBuffer.
@@ -83,7 +84,8 @@ pub fn boot_entry(entry: &Entry) -> bool {
 }
 
 fn build_file_device_path(efi_path: &str) -> Option<uefi::proto::device_path::PoolDevicePath> {
-    let target_cstr = CString16::try_from(efi_path).ok()?;
+    let normalized = util::normalize_path(efi_path);
+    let target_cstr = CString16::try_from(normalized.as_str()).ok()?;
     let file_node = build::media::FilePath {
         path_name: &target_cstr,
     };
@@ -107,7 +109,8 @@ fn read_efi_file(path: &str) -> Result<alloc::vec::Vec<u8>, &'static str> {
     let sfsp =
         boot::get_image_file_system(boot::image_handle()).map_err(|_| "no filesystem")?;
     let mut fs = FileSystem::new(sfsp);
-    let cstr = CString16::try_from(path).map_err(|_| "bad path")?;
+    let normalized = util::normalize_path(path);
+    let cstr = CString16::try_from(normalized.as_str()).map_err(|_| "bad path")?;
     fs.read(cstr.as_ref()).map_err(|_| "read failed")
 }
 

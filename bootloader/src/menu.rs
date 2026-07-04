@@ -9,6 +9,7 @@ use uefi::boot::{OpenProtocolAttributes, OpenProtocolParams, SearchType};
 use uefi::Identify;
 
 use crate::config::{Config, Entry};
+use crate::util;
 
 enum MenuInput<'a> {
     Owned(boot::ScopedProtocol<Input>),
@@ -287,10 +288,11 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
                 if c_val == b'\r' as u16 || c_val == b'\n' as u16 {
                     if !buf.is_empty() {
                         let path = core::str::from_utf8(&buf).unwrap_or("").to_string();
+                        let normalized = util::normalize_path(&path);
                         return Some(Entry {
                             name: "manual".into(),
-                            title: path.clone(),
-                            efi_path: path,
+                            title: path,
+                            efi_path: normalized,
                             options: None,
                             initrd: Vec::new(),
                             boot_counter: None,
