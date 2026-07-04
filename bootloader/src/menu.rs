@@ -271,7 +271,7 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
     uefi::system::with_stdout(|g| {
         let _ = g.set_cursor_position(0, 0);
         let _ = g.output_string(cstr16!(
-            "Enter path to .efi file (e.g. \\EFI\\arch\\systemd-bootx64.efi):\r\n"
+            "Enter path to .efi file (e.g. /EFI/arch/systemd-bootx64.efi):\r\n"
         ));
         let _ = g.output_string(cstr16!(
             "Type the path and press Enter, or press Esc to go back.\r\n"
@@ -292,7 +292,7 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
                             title: path.clone(),
                             efi_path: path,
                             options: None,
-                            initrd: None,
+                            initrd: Vec::new(),
                             boot_counter: None,
                             source_path: None,
                         });

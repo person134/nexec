@@ -2,7 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-type DetectedEntry = (String, String, String, Option<String>, Option<String>);
+type DetectedEntry = (String, String, String, Option<String>, Vec<String>);
 
 pub fn init(output: String) {
     let path = Path::new(&output);
@@ -13,8 +13,8 @@ pub fn init(output: String) {
 
     // Write main config
     let main_content = r#"# hboot main configuration
-# Place this file at \EFI\hboot\hboot.conf on your ESP.
-# Boot entries go in \EFI\hboot\entries\*.conf (one file per entry).
+# Place this file at /EFI/hboot/hboot.conf on your ESP.
+# Boot entries go in /EFI/hboot/entries/*.conf (one file per entry).
 default = arch
 timeout = 5
 # recovery_timeout = 5    # seconds to press 'r' for recovery before boot menu (default: 5)
@@ -56,9 +56,9 @@ timeout = 5
 
     // Sample entry: arch
     let arch_entry = r#"title = Arch Linux
-efi = \vmlinuz-linux
+efi = /vmlinuz-linux
+initrd = /initramfs-linux.img
 options = root=UUID=your-root-uuid rw quiet
-initrd = \initramfs-linux.img
 "#;
     std::fs::write(entries_dir.join("arch.conf"), arch_entry).unwrap_or_else(|e| {
         eprintln!("error: failed to write arch.conf: {}", e);
@@ -68,7 +68,7 @@ initrd = \initramfs-linux.img
 
     // Sample entry: windows
     let win_entry = r#"title = Windows
-efi = \EFI\Microsoft\Boot\bootmgfw.efi
+efi = /EFI/Microsoft/Boot/bootmgfw.efi
 "#;
     std::fs::write(entries_dir.join("windows.conf"), win_entry).unwrap_or_else(|e| {
         eprintln!("error: failed to write windows.conf: {}", e);
@@ -78,8 +78,8 @@ efi = \EFI\Microsoft\Boot\bootmgfw.efi
 
     println!();
     println!("Edit the files and place them on your ESP:");
-    println!("  \\EFI\\hboot\\hboot.conf            (main config)");
-    println!("  \\EFI\\hboot\\entries\\*.conf        (one file per entry)");
+    println!("  /EFI/hboot/hboot.conf            (main config)");
+    println!("  /EFI/hboot/entries/*.conf        (one file per entry)");
 }
 
 fn current_os() -> Option<(String, String)> {
@@ -169,11 +169,11 @@ fn to_efi_path(abs_path: &Path, esp: &Path) -> Option<String> {
         .or_else(|| abs_path.strip_prefix(&esp_canon).ok())
         .or_else(|| esp_raw.as_ref().and_then(|p| abs_path.strip_prefix(p).ok()))?;
 
-    let components: Vec<_> = rest.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-    if components.is_empty() {
-        return None;
-    }
-    Some(format!("\\{}", components.join("\\")))
+        let components: Vec<_> = rest.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        if components.is_empty() {
+            return None;
+        }
+        Some(format!("/{}", components.join("/")))
 }
 
 /// Resolve the root block device (e.g. `/dev/nvme0n1p2`) by matching
@@ -282,7 +282,7 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
     // Windows
     let win = esp_path.join("EFI/Microsoft/Boot/bootmgfw.efi");
     if win.exists() {
-        entry_files.push(("windows".into(), "Windows".into(), "\\EFI\\Microsoft\\Boot\\bootmgfw.efi".into(), None, None));
+        entry_files.push(("windows".into(), "Windows".into(), "/EFI/Microsoft/Boot/bootmgfw.efi".into(), None, Vec::new()));
     }
 
     // Detect the running OS and point to its kernel + initrd on the ESP
@@ -290,29 +290,34 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
         let kernel_on_esp = find_kernel().and_then(|kp| to_efi_path(&kp, esp_path));
         let kernel_on_esp_root = scan_esp_root_kernels(esp_path);
 
-        let (efi_path, initrd_line) = if let Some(ref path) = kernel_on_esp {
+        let (efi_path, initrd_list) = if let Some(ref path) = kernel_on_esp {
             let kernel_path = find_kernel().unwrap();
-            let initrd = find_initrd(&kernel_path)
-                .and_then(|ip| to_efi_path(&ip, esp_path));
-            if initrd.is_none() {
+            let mut initrds = Vec::new();
+            // Microcode first
+            if let Some(ucode) = find_microcode_on_esp(esp_path) {
+                initrds.push(ucode);
+            }
+            if let Some(ip) = find_initrd(&kernel_path).and_then(|p| to_efi_path(&p, esp_path)) {
+                initrds.push(ip);
+            } else {
                 eprintln!("warning: initramfs not found on ESP. The kernel will boot without it.");
                 eprintln!("  Copy initramfs to ESP root: sudo cp /boot/initramfs-linux.img {}/", esp_path.display());
             }
-            (path.clone(), initrd)
+            (path.clone(), initrds)
         } else if let Some(path) = kernel_on_esp_root {
             eprintln!("warning: running kernel not found under ESP mount, but found {} on ESP root.", path);
             eprintln!("  Initramfs cannot be auto-detected in this case.");
-            eprintln!("  If it's also on the ESP, add: initrd = \\initramfs-linux.img");
-            (path, None)
+            eprintln!("  If it's also on the ESP, add: initrd = /initramfs-linux.img");
+            (path, Vec::new())
         } else {
             eprintln!("warning: could not find any kernel on the ESP.");
             eprintln!("  hboot cannot boot without a kernel. Run 'sudo hboot config edit' to configure manually.");
-            (String::new(), None)
+            (String::new(), Vec::new())
         };
 
         if !efi_path.is_empty() {
             let opts = build_linux_options();
-            entry_files.push((os_id, os_name, efi_path, Some(opts), initrd_line));
+            entry_files.push((os_id, os_name, efi_path, Some(opts), initrd_list));
         }
     }
 
@@ -337,8 +342,8 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
                         .collect::<Vec<_>>()
                         .join(" ");
                     let entry_name = name.to_lowercase().replace(".efi", "");
-                    let efi_path = format!("\\EFI\\Linux\\{}", name);
-                    entry_files.push((entry_name, title, efi_path, None, None));
+                    let efi_path = format!("/EFI/Linux/{}", name);
+                    entry_files.push((entry_name, title, efi_path, None, Vec::new()));
                 }
             }
         }
@@ -361,7 +366,7 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
     // Generate main config text
     let mut main_conf = String::new();
     main_conf.push_str("# hboot main configuration\n");
-    main_conf.push_str("# Boot entries are in \\EFI\\hboot\\entries\\*.conf\n");
+    main_conf.push_str("# Boot entries are in /EFI/hboot/entries/*.conf\n");
     main_conf.push_str("no_scan = true\n");
     main_conf.push_str("timeout = 5\n");
 
@@ -373,20 +378,29 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
     // Generate entry files
     let entries: Vec<(String, String)> = entry_files
         .iter()
-        .map(|(name, title, efi_path, options, initrd)| {
+        .map(|(name, title, efi_path, options, initrd_list)| {
             let mut content = format!("title = {}\n", title);
             content.push_str(&format!("efi = {}\n", efi_path));
+            for ird in initrd_list {
+                content.push_str(&format!("initrd = {}\n", ird));
+            }
             if let Some(opts) = options {
                 content.push_str(&format!("options = {}\n", opts));
-            }
-            if let Some(ird) = initrd {
-                content.push_str(&format!("initrd = {}\n", ird));
             }
             (name.clone(), content)
         })
         .collect();
 
     (main_conf, entries)
+}
+
+fn find_microcode_on_esp(esp_path: &Path) -> Option<String> {
+    for name in &["/intel-ucode.img", "/amd-ucode.img"] {
+        if esp_path.join(name.trim_start_matches('/')).exists() {
+            return Some(name.to_string());
+        }
+    }
+    None
 }
 
 /// Scan ESP root for any vmlinuz-* file (distribution-agnostic).
@@ -397,7 +411,7 @@ fn scan_esp_root_kernels(esp_path: &Path) -> Option<String> {
             let name = entry.file_name();
             let name = name.to_string_lossy().to_string();
             if name.starts_with("vmlinuz") {
-                return Some(format!("\\{}", name));
+                return Some(format!("/{}", name));
             }
         }
     }
@@ -415,7 +429,7 @@ fn scan_esp_root_kernels_all(esp_path: &Path, entries: &mut Vec<DetectedEntry>) 
         kernels.sort();
 
         for name in kernels {
-            let efi_path = format!("\\{}", name);
+            let efi_path = format!("/{}", name);
             let version = name.strip_prefix("vmlinuz-").unwrap_or("");
             let title = if version.is_empty() {
                 "Linux".into()
@@ -427,8 +441,12 @@ fn scan_esp_root_kernels_all(esp_path: &Path, entries: &mut Vec<DetectedEntry>) 
             } else {
                 format!("linux-{}", version.to_lowercase())
             };
+            let mut initrd = Vec::new();
+            if let Some(ucode) = find_microcode_on_esp(esp_path) {
+                initrd.push(ucode);
+            }
             let opts = build_linux_options();
-            entries.push((entry_name, title, efi_path, Some(opts), None));
+            entries.push((entry_name, title, efi_path, Some(opts), initrd));
         }
     }
 }
@@ -691,7 +709,7 @@ mod tests {
         let kernel = esp.join("vmlinuz-linux");
         std::fs::write(&kernel, b"kernel").unwrap();
         let result = to_efi_path(&kernel, &esp);
-        assert_eq!(result, Some("\\vmlinuz-linux".into()));
+        assert_eq!(result, Some("/vmlinuz-linux".into()));
     }
 
     #[test]
@@ -703,7 +721,7 @@ mod tests {
         let uki = sub.join("arch.efi");
         std::fs::write(&uki, b"uki").unwrap();
         let result = to_efi_path(&uki, &esp);
-        assert_eq!(result, Some("\\EFI\\Linux\\arch.efi".into()));
+        assert_eq!(result, Some("/EFI/Linux/arch.efi".into()));
     }
 
     #[test]
@@ -727,7 +745,7 @@ mod tests {
         std::fs::write(&kernel, b"kernel").unwrap();
         // Use a non-canonicalized esp path — function canonicalizes internally
         let result = to_efi_path(&kernel, &esp);
-        assert_eq!(result, Some("\\vmlinuz".into()));
+        assert_eq!(result, Some("/vmlinuz".into()));
     }
 
     // scan_esp_root_kernels: finds vmlinuz-* on ESP root
@@ -738,7 +756,7 @@ mod tests {
         std::fs::write(dir.path().join("vmlinuz-6.1.0"), b"k").unwrap();
         std::fs::write(dir.path().join("initramfs-6.1.0.img"), b"i").unwrap();
         let result = scan_esp_root_kernels(dir.path());
-        assert_eq!(result, Some("\\vmlinuz-6.1.0".into()));
+        assert_eq!(result, Some("/vmlinuz-6.1.0".into()));
     }
 
     #[test]
@@ -749,7 +767,7 @@ mod tests {
         let result = scan_esp_root_kernels(dir.path());
         // Returns the first vmlinuz-* found in readdir order (not sorted), so just check one is returned
         assert!(result.is_some());
-        assert!(result.unwrap().starts_with("\\vmlinuz-"));
+        assert!(result.unwrap().starts_with("/vmlinuz-"));
     }
 
     #[test]
@@ -810,7 +828,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         let (_, _, _, opts, initrd) = &entries[0];
         assert!(opts.is_some());
-        assert!(initrd.is_none());
+        assert!(initrd.is_empty());
     }
 
     // generate_detected_config stubs

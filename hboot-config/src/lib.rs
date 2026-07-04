@@ -12,11 +12,8 @@ pub struct Entry {
     pub title: String,
     pub efi_path: String,
     pub options: Option<String>,
-    pub initrd: Option<String>,
-    /// Boot counter: None = no counting, Some(0) = exhausted, Some(N) = N tries left.
-    /// Stored in an external state file, not parsed from entry content.
+    pub initrd: Vec<String>,
     pub boot_counter: Option<u32>,
-    /// Filesystem path to the entry file (used for boot-count file writes).
     pub source_path: Option<String>,
 }
 
@@ -31,8 +28,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Parse an entry file (no `[name]` header — name comes from the filename).
-    /// Fields: title, efi, options, initrd.
     pub fn parse_entry_file(name: &str, data: &[u8]) -> Result<Entry, &'static str> {
         let text = core::str::from_utf8(data).map_err(|_| "entry file not valid UTF-8")?;
         let mut entry = Entry {
@@ -40,7 +35,7 @@ impl Config {
             title: String::new(),
             efi_path: String::new(),
             options: None,
-            initrd: None,
+            initrd: Vec::new(),
             boot_counter: None,
             source_path: None,
         };
@@ -60,7 +55,9 @@ impl Config {
                         entry.options = if value.is_empty() { None } else { Some(value.to_string()) }
                     }
                     "initrd" => {
-                        entry.initrd = if value.is_empty() { None } else { Some(value.to_string()) }
+                        if !value.is_empty() {
+                            entry.initrd.push(value.to_string());
+                        }
                     }
                     _ => {}
                 }
@@ -72,10 +69,6 @@ impl Config {
         Ok(entry)
     }
 
-    /// Parse a Boot Loader Spec (type-1) entry file.
-    /// Keys: title, linux (→ efi), initrd, options, efi (direct).
-    /// Paths use `/` separators; they are converted to `\` for hboot.
-    /// The entry name is derived from the filename (without extension).
     pub fn parse_bls_entry(filename: &str, data: &[u8]) -> Result<Entry, &'static str> {
         let text = core::str::from_utf8(data).map_err(|_| "BLS entry not valid UTF-8")?;
         let mut entry = Entry {
@@ -83,7 +76,7 @@ impl Config {
             title: String::new(),
             efi_path: String::new(),
             options: None,
-            initrd: None,
+            initrd: Vec::new(),
             boot_counter: None,
             source_path: None,
         };
@@ -97,16 +90,18 @@ impl Config {
                 let key = trimmed[..eq].trim();
                 let value = trimmed[eq + 1..].trim();
                 let value = value.trim_matches('"');
-                // BLS uses / paths; convert to \ for hboot
-                let converted = value.replace('/', "\\");
                 match key {
                     "title" => entry.title = value.to_string(),
-                    "linux" => entry.efi_path = converted,
-                    "initrd" => entry.initrd = Some(converted),
+                    "linux" => entry.efi_path = value.to_string(),
+                    "initrd" => {
+                        if !value.is_empty() {
+                            entry.initrd.push(value.to_string());
+                        }
+                    }
                     "options" => {
                         entry.options = if value.is_empty() { None } else { Some(value.to_string()) }
                     }
-                    "efi" => entry.efi_path = converted,
+                    "efi" => entry.efi_path = value.to_string(),
                     _ => {}
                 }
             }
@@ -150,7 +145,7 @@ impl Config {
                     title: String::new(),
                     efi_path: String::new(),
                     options: None,
-                    initrd: None,
+                    initrd: Vec::new(),
                     boot_counter: None,
                     source_path: None,
                 });
@@ -174,10 +169,8 @@ impl Config {
                             }
                         }
                         "initrd" => {
-                            entry.initrd = if value.is_empty() {
-                                None
-                            } else {
-                                Some(value.to_string())
+                            if !value.is_empty() {
+                                entry.initrd.push(value.to_string());
                             }
                         }
                         _ => {}
@@ -233,13 +226,13 @@ order = arch windows
 
 [arch]
 title = Arch Linux
-efi = \vmlinuz-linux
+efi = /vmlinuz-linux
 options = root=UUID=123 rw quiet
-initrd = \initramfs-linux.img
+initrd = /initramfs-linux.img
 
 [windows]
 title = Windows
-efi = \EFI\Microsoft\Boot\bootmgfw.efi
+efi = /EFI/Microsoft/Boot/bootmgfw.efi
 "#;
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.default.as_deref(), Some("arch"));
@@ -250,15 +243,15 @@ efi = \EFI\Microsoft\Boot\bootmgfw.efi
 
         assert_eq!(cfg.entries[0].name, "arch");
         assert_eq!(cfg.entries[0].title, "Arch Linux");
-        assert_eq!(cfg.entries[0].efi_path, "\\vmlinuz-linux");
+        assert_eq!(cfg.entries[0].efi_path, "/vmlinuz-linux");
         assert_eq!(cfg.entries[0].options.as_deref(), Some("root=UUID=123 rw quiet"));
-        assert_eq!(cfg.entries[0].initrd.as_deref(), Some("\\initramfs-linux.img"));
+        assert_eq!(cfg.entries[0].initrd, ["/initramfs-linux.img"]);
 
         assert_eq!(cfg.entries[1].name, "windows");
         assert_eq!(cfg.entries[1].title, "Windows");
-        assert_eq!(cfg.entries[1].efi_path, "\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
+        assert_eq!(cfg.entries[1].efi_path, "/EFI/Microsoft/Boot/bootmgfw.efi");
         assert_eq!(cfg.entries[1].options, None);
-        assert_eq!(cfg.entries[1].initrd, None);
+        assert!(cfg.entries[1].initrd.is_empty());
     }
 
     #[test]
@@ -354,21 +347,21 @@ efi = \EFI\Microsoft\Boot\bootmgfw.efi
     fn quoted_values() {
         let data = r#"[test]
 title = "My Title"
-efi = "\EFI\path\file.efi""#;
+efi = "/EFI/path/file.efi""#;
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.entries[0].title, "My Title");
     }
 
     #[test]
     fn single_entry_minimal() {
-        let data = "[mine]\nefi = \\EFI\\test.efi";
+        let data = "[mine]\nefi = /EFI/test.efi";
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.entries.len(), 1);
         assert_eq!(cfg.entries[0].name, "mine");
         assert_eq!(cfg.entries[0].title, "");
-        assert_eq!(cfg.entries[0].efi_path, "\\EFI\\test.efi");
+        assert_eq!(cfg.entries[0].efi_path, "/EFI/test.efi");
         assert_eq!(cfg.entries[0].options, None);
-        assert_eq!(cfg.entries[0].initrd, None);
+        assert!(cfg.entries[0].initrd.is_empty());
     }
 
     #[test]
@@ -386,7 +379,7 @@ efi = "\EFI\path\file.efi""#;
         let data = "[test]\ntitle = Test\nefi = x\noptions = \ninitrd = ";
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.entries[0].options, None);
-        assert_eq!(cfg.entries[0].initrd, None);
+        assert!(cfg.entries[0].initrd.is_empty());
     }
 
     #[test]
@@ -462,38 +455,38 @@ options = root=UUID=abc rw"#;
     fn all_keys_in_entry() {
         let data = r#"[arch]
 title = Arch Linux
-efi = \vmlinuz-linux
+efi = /vmlinuz-linux
 options = root=PARTUUID=abc rw
-initrd = \initramfs-linux.img"#;
+initrd = /initramfs-linux.img"#;
         let cfg = parse(data).unwrap();
         let e = &cfg.entries[0];
         assert_eq!(e.name, "arch");
         assert_eq!(e.title, "Arch Linux");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
         assert_eq!(e.options.as_deref(), Some("root=PARTUUID=abc rw"));
-        assert_eq!(e.initrd.as_deref(), Some("\\initramfs-linux.img"));
+        assert_eq!(e.initrd, ["/initramfs-linux.img"]);
     }
 
     #[test]
     fn parse_entry_file_full() {
-        let data = "title = My Distro\nefi = \\vmlinuz-6.1.0\noptions = root=UUID=abc rw\ninitrd = \\initramfs-6.1.0.img\n";
+        let data = "title = My Distro\nefi = /vmlinuz-6.1.0\noptions = root=UUID=abc rw\ninitrd = /initramfs-6.1.0.img\n";
         let e = Config::parse_entry_file("mydistro", data.as_bytes()).unwrap();
         assert_eq!(e.name, "mydistro");
         assert_eq!(e.title, "My Distro");
-        assert_eq!(e.efi_path, "\\vmlinuz-6.1.0");
+        assert_eq!(e.efi_path, "/vmlinuz-6.1.0");
         assert_eq!(e.options.as_deref(), Some("root=UUID=abc rw"));
-        assert_eq!(e.initrd.as_deref(), Some("\\initramfs-6.1.0.img"));
+        assert_eq!(e.initrd, ["/initramfs-6.1.0.img"]);
     }
 
     #[test]
     fn parse_entry_file_minimal() {
-        let data = "efi = \\vmlinuz-linux";
+        let data = "efi = /vmlinuz-linux";
         let e = Config::parse_entry_file("linux", data.as_bytes()).unwrap();
         assert_eq!(e.name, "linux");
         assert_eq!(e.title, "");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
         assert!(e.options.is_none());
-        assert!(e.initrd.is_none());
+        assert!(e.initrd.is_empty());
     }
 
     #[test]
@@ -505,18 +498,25 @@ initrd = \initramfs-linux.img"#;
 
     #[test]
     fn parse_entry_file_comments_and_blanks() {
-        let data = "# comment\ntitle = Test\n\nefi = \\test.efi\n";
+        let data = "# comment\ntitle = Test\n\nefi = /test.efi\n";
         let e = Config::parse_entry_file("test", data.as_bytes()).unwrap();
         assert_eq!(e.title, "Test");
-        assert_eq!(e.efi_path, "\\test.efi");
+        assert_eq!(e.efi_path, "/test.efi");
     }
 
     #[test]
     fn parse_entry_file_quoted_values() {
-        let data = "title = \"My OS\"\nefi = \"\\path\\to\\kernel.efi\"";
+        let data = "title = \"My OS\"\nefi = \"/path/to/kernel.efi\"";
         let e = Config::parse_entry_file("os", data.as_bytes()).unwrap();
         assert_eq!(e.title, "My OS");
-        assert_eq!(e.efi_path, "\\path\\to\\kernel.efi");
+        assert_eq!(e.efi_path, "/path/to/kernel.efi");
+    }
+
+    #[test]
+    fn parse_entry_file_multiple_initrd() {
+        let data = "title = Arch Linux\nefi = /vmlinuz-linux\ninitrd = /intel-ucode.img\ninitrd = /initramfs-linux.img\noptions = root=UUID=abc rw\n";
+        let e = Config::parse_entry_file("arch", data.as_bytes()).unwrap();
+        assert_eq!(e.initrd, ["/intel-ucode.img", "/initramfs-linux.img"]);
     }
 
     // ---- BLS entry parsing tests ----
@@ -535,8 +535,8 @@ options root=UUID=123 rw quiet
         let e = parse_bls("arch", data).unwrap();
         assert_eq!(e.name, "arch");
         assert_eq!(e.title, "Arch Linux");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
-        assert_eq!(e.initrd.as_deref(), Some("\\initramfs-linux.img"));
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
+        assert_eq!(e.initrd, ["/initramfs-linux.img"]);
         assert_eq!(e.options.as_deref(), Some("root=UUID=123 rw quiet"));
     }
 
@@ -545,8 +545,8 @@ options root=UUID=123 rw quiet
         let data = "linux /vmlinuz-linux";
         let e = parse_bls("linux", data).unwrap();
         assert_eq!(e.name, "linux");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
-        assert!(e.initrd.is_none());
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
+        assert!(e.initrd.is_empty());
         assert!(e.options.is_none());
     }
 
@@ -554,14 +554,14 @@ options root=UUID=123 rw quiet
     fn bls_efi_direct() {
         let data = "efi /EFI/Linux/arch.efi";
         let e = parse_bls("arch.efi", data).unwrap();
-        assert_eq!(e.efi_path, "\\EFI\\Linux\\arch.efi");
+        assert_eq!(e.efi_path, "/EFI/Linux/arch.efi");
     }
 
     #[test]
     fn bls_linux_takes_precedence_over_efi() {
         let data = "efi /fallback.efi\nlinux /vmlinuz-linux";
         let e = parse_bls("test", data).unwrap();
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
     }
 
     #[test]
@@ -577,7 +577,7 @@ options root=UUID=123 rw quiet
 linux "/vmlinuz-linux""#;
         let e = parse_bls("arch", data).unwrap();
         assert_eq!(e.title, "Arch Linux");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
     }
 
     #[test]
@@ -585,14 +585,14 @@ linux "/vmlinuz-linux""#;
         let data = "# comment\nlinux /vmlinuz-linux\n\ntitle Test\n";
         let e = parse_bls("test", data).unwrap();
         assert_eq!(e.title, "Test");
-        assert_eq!(e.efi_path, "\\vmlinuz-linux");
+        assert_eq!(e.efi_path, "/vmlinuz-linux");
     }
 
     #[test]
     fn bls_unknown_key() {
         let data = "linux /vmlinuz\nunknown = whatever\n";
         let e = parse_bls("test", data).unwrap();
-        assert_eq!(e.efi_path, "\\vmlinuz");
+        assert_eq!(e.efi_path, "/vmlinuz");
     }
 
     #[test]
@@ -620,6 +620,13 @@ linux "/vmlinuz-linux""#;
         let data = "linux /vmlinuz";
         let e = parse_bls("my-custom-entry", data).unwrap();
         assert_eq!(e.name, "my-custom-entry");
+    }
+
+    #[test]
+    fn bls_multiple_initrd() {
+        let data = "linux /vmlinuz-linux\ninitrd /intel-ucode.img\ninitrd /initramfs-linux.img\n";
+        let e = parse_bls("arch", data).unwrap();
+        assert_eq!(e.initrd, ["/intel-ucode.img", "/initramfs-linux.img"]);
     }
 
     // ---- Config.parse edge cases ----
@@ -656,24 +663,23 @@ linux "/vmlinuz-linux""#;
 
     #[test]
     fn parse_entry_file_blank_lines_between_keys() {
-        let data = "title = Test\n\nefi = \\test.efi\n\noptions = quiet\n";
+        let data = "title = Test\n\nefi = /test.efi\n\noptions = quiet\n";
         let e = Config::parse_entry_file("t", data.as_bytes()).unwrap();
         assert_eq!(e.title, "Test");
-        assert_eq!(e.efi_path, "\\test.efi");
+        assert_eq!(e.efi_path, "/test.efi");
         assert_eq!(e.options.as_deref(), Some("quiet"));
     }
 
     #[test]
     fn parse_entry_file_extra_whitespace_around_equals() {
-        let data = "title   =   My Entry\nefi\t=\t\\path.efi";
+        let data = "title   =   My Entry\nefi\t=\t/path.efi";
         let e = Config::parse_entry_file("e", data.as_bytes()).unwrap();
         assert_eq!(e.title, "My Entry");
-        assert_eq!(e.efi_path, "\\path.efi");
+        assert_eq!(e.efi_path, "/path.efi");
     }
 
     #[test]
     fn global_keys_before_sections_only() {
-        // Keys after a section header are treated as entry keys, not global
         let data = "default = e\n[e]\nefi = p";
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.default.as_deref(), Some("e"));
@@ -689,10 +695,8 @@ linux "/vmlinuz-linux""#;
 
     #[test]
     fn parse_trailing_whitespace_trimmed() {
-        let data = "[test]\ntitle = My OS   \nefi = \\path.efi   ";
+        let data = "[test]\ntitle = My OS   \nefi = /path.efi   ";
         let cfg = parse(data).unwrap();
         assert_eq!(cfg.entries[0].title, "My OS");
     }
-
-
 }

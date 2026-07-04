@@ -41,9 +41,8 @@ pub fn boot_entry(entry: &Entry) -> bool {
     drop(kernel_data);
 
     // Build kernel command line: options from config + initrd= on cmdline
-    // (the kernel's EFI stub reads initrd= and loads it via UEFI filesystem)
     let mut cmdline = entry.options.clone().unwrap_or_default();
-    if let Some(ref initrd_path) = entry.initrd {
+    for initrd_path in &entry.initrd {
         if !cmdline.is_empty() {
             cmdline.push(' ');
         }

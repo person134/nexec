@@ -259,9 +259,9 @@ fn check_recovery_key(timeout_secs: u64) -> bool {
                     println!();
                     println!("Recovery key pressed. Restoring backup...");
                     if restore_entries() {
-                        println!("Backup restored from \\EFI\\hboot\\backup\\entries\\");
+                        println!("Backup restored from /EFI/hboot/backup/entries/");
                     } else {
-                        println!("No backup found at \\EFI\\hboot\\backup\\entries\\");
+                        println!("No backup found at /EFI/hboot/backup/entries/");
                     }
                     return true;
                 }
@@ -275,7 +275,7 @@ fn check_recovery_key(timeout_secs: u64) -> bool {
 fn ensure_backup_dir() {
     if let Ok(mut sfsp) = boot::get_image_file_system(boot::image_handle()) {
         if let Ok(mut volume) = sfsp.open_volume() {
-            for p in [cstr16!("\\EFI\\hboot\\backup"), cstr16!("\\EFI\\hboot\\backup\\entries")] {
+            for p in [cstr16!("/EFI/hboot/backup"), cstr16!("/EFI/hboot/backup/entries")] {
                 let _ = volume.open(p, FileMode::CreateReadWrite, FileAttribute::DIRECTORY);
             }
         }
@@ -289,7 +289,7 @@ fn backup_entries() {
     };
     let mut fs = fs;
 
-    let entries_dir = cstr16!("\\EFI\\hboot\\entries");
+    let entries_dir = cstr16!("/EFI/hboot/entries");
     if !fs.try_exists(entries_dir).unwrap_or(false) {
         return;
     }
@@ -302,8 +302,8 @@ fn backup_entries() {
                 let name = entry.file_name();
                 let name_str = name.to_string();
                 if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
-                    let src_path = alloc::format!("\\EFI\\hboot\\entries\\{}", name_str);
-                    let dst_path = alloc::format!("\\EFI\\hboot\\backup\\entries\\{}", name_str);
+                    let src_path = alloc::format!("/EFI/hboot/entries/{}", name_str);
+                    let dst_path = alloc::format!("/EFI/hboot/backup/entries/{}", name_str);
 
                     if let Ok(cstr_src) = CString16::try_from(src_path.as_str()) {
                         if let Ok(data) = fs.read(cstr_src.as_ref()) {
@@ -325,7 +325,7 @@ fn restore_entries() -> bool {
     };
     let mut fs = fs;
 
-    let backup_dir = cstr16!("\\EFI\\hboot\\backup\\entries");
+    let backup_dir = cstr16!("/EFI/hboot/backup/entries");
     if !fs.try_exists(backup_dir).unwrap_or(false) {
         return false;
     }
@@ -337,8 +337,8 @@ fn restore_entries() -> bool {
                 let name = entry.file_name();
                 let name_str = name.to_string();
                 if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
-                    let src_path = alloc::format!("\\EFI\\hboot\\backup\\entries\\{}", name_str);
-                    let dst_path = alloc::format!("\\EFI\\hboot\\entries\\{}", name_str);
+                    let src_path = alloc::format!("/EFI/hboot/backup/entries/{}", name_str);
+                    let dst_path = alloc::format!("/EFI/hboot/entries/{}", name_str);
 
                     if let Ok(cstr_src) = CString16::try_from(src_path.as_str()) {
                         if let Ok(data) = fs.read(cstr_src.as_ref()) {
@@ -356,7 +356,7 @@ fn restore_entries() -> bool {
 }
 
 fn load_config() -> Option<config::Config> {
-    let main_paths = [cstr16!("\\EFI\\hboot\\hboot.conf"), cstr16!("\\hboot.conf")];
+    let main_paths = [cstr16!("/EFI/hboot/hboot.conf"), cstr16!("/hboot.conf")];
 
     let fs = get_fs();
     let mut fs = match fs {
@@ -400,7 +400,7 @@ fn load_config() -> Option<config::Config> {
     }
 
     // Read entry files from \EFI\hboot\entries\*.conf
-    let entries_dir = cstr16!("\\EFI\\hboot\\entries");
+    let entries_dir = cstr16!("/EFI/hboot/entries");
     if fs.try_exists(entries_dir).unwrap_or(false) {
         if let Ok(dir_iter) = fs.read_dir(entries_dir) {
             for entry_result in dir_iter {
@@ -412,7 +412,7 @@ fn load_config() -> Option<config::Config> {
                             &mut cfg,
                             &mut fs,
                             &name_str,
-                            &alloc::format!("\\EFI\\hboot\\entries\\{}", name_str),
+                            &alloc::format!("/EFI/hboot/entries/{}", name_str),
                         );
                     }
                 }
@@ -421,7 +421,7 @@ fn load_config() -> Option<config::Config> {
     }
 
     // Read BLS type-1 entries from \loader\entries\*.conf
-    let bls_dir = cstr16!("\\loader\\entries");
+    let bls_dir = cstr16!("/loader/entries");
     if fs.try_exists(bls_dir).unwrap_or(false) {
         if let Ok(dir_iter) = fs.read_dir(bls_dir) {
             for entry_result in dir_iter {
@@ -429,7 +429,7 @@ fn load_config() -> Option<config::Config> {
                     let name = entry.file_name();
                     let name_str = name.to_string();
                     if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
-                        let full_path = alloc::format!("\\loader\\entries\\{}", name_str);
+                        let full_path = alloc::format!("/loader/entries/{}", name_str);
                         let cstr = CString16::try_from(full_path.as_str()).ok();
                         if let Some(c) = cstr {
                             if let Ok(data) = fs.read(c.as_ref()) {

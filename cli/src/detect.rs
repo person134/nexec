@@ -18,7 +18,7 @@ pub fn detect(esp_path: Option<String>) {
     let windows_path = format!("{}/EFI/Microsoft/Boot/bootmgfw.efi", esp);
     if Path::new(&windows_path).exists() {
         println!("  Windows Boot Manager");
-        println!("    efi: \\EFI\\Microsoft\\Boot\\bootmgfw.efi");
+        println!("    efi: /EFI/Microsoft/Boot/bootmgfw.efi");
     }
 
     // UKIs
@@ -31,7 +31,7 @@ pub fn detect(esp_path: Option<String>) {
                     let name = name.to_string_lossy();
                     if name.ends_with(".efi") || name.ends_with(".EFI") {
                         println!("  Linux UKI: {}", name);
-                        println!("    efi: \\EFI\\Linux\\{}", name);
+                        println!("    efi: /EFI/Linux/{}", name);
                     }
                 }
             }
@@ -50,15 +50,14 @@ pub fn detect(esp_path: Option<String>) {
             let version = name.strip_prefix("vmlinuz-").unwrap_or("(no version)");
             println!("  Linux kernel: {}", name);
             println!("    version: {}", version);
-            println!("    efi: \\{}", name);
-            // Check for matching initramfs
+            println!("    efi: /{}", name);
             for initrd_candidate in [
                 format!("{}/initramfs-{}.img", esp, version),
                 format!("{}/initrd.img-{}", esp, version),
             ] {
                 if Path::new(&initrd_candidate).exists() {
                     let fname = initrd_candidate.rsplit('/').next().unwrap_or("");
-                    println!("    initrd: \\{}", fname);
+                    println!("    initrd: /{}", fname);
                 }
             }
         }

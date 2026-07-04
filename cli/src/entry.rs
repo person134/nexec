@@ -140,11 +140,11 @@ pub fn add(
     let t = title.unwrap_or_else(|| name.clone());
     let mut content = format!("title = {}\n", t);
     content.push_str(&format!("efi = {}\n", efi));
-    if let Some(o) = options {
-        content.push_str(&format!("options = {}\n", o));
-    }
     if let Some(ir) = initrd {
         content.push_str(&format!("initrd = {}\n", ir));
+    }
+    if let Some(o) = options {
+        content.push_str(&format!("options = {}\n", o));
     }
 
     std::fs::write(&entry_path, content).unwrap_or_else(|e| {
