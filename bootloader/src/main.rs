@@ -40,6 +40,9 @@ fn main() -> Status {
     loop {
         match menu_ui.run() {
             menu::MenuResult::Boot(entry) => {
+                uefi::system::with_stdout(|g| {
+                    let _ = g.clear();
+                });
                 decrement_boot_counter(&entry);
                 backup_entries();
                 boot_loader::boot_entry(&entry);
