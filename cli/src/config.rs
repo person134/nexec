@@ -17,6 +17,7 @@ pub fn init(output: String) {
 # Boot entries go in \EFI\hboot\entries\*.conf (one file per entry).
 default = arch
 timeout = 5
+# recovery_timeout = 5    # seconds to wait for 'r' key before boot menu (default: 5)
 # order = arch windows    # uncomment to set display order by entry name
 # no_scan = true          # uncomment to disable auto-detection of OSes
 "#;

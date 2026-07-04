@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "hboot"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "clap",
  "tempfile",
@@ -153,11 +153,11 @@ dependencies = [
 
 [[package]]
 name = "hboot-config"
-version = "1.2.2"
+version = "1.3.0"
 
 [[package]]
 name = "hboot-efi"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "hboot-config",
  "log",

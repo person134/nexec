@@ -24,18 +24,19 @@ fn main() -> Status {
     uefi::helpers::init().unwrap();
     log::set_max_level(log::LevelFilter::Off);
 
-    check_recovery_key();
-
-    let cfg = match load_config() {
-        Some(c) => c,
-        None => config::Config {
-            default: None,
-            timeout: 5,
-            no_scan: false,
-            order: None,
-            entries: alloc::vec::Vec::new(),
-        },
-    };
+    let mut cfg = load_config();
+    let recovery_timeout = cfg.as_ref().map_or(5, |c| c.recovery_timeout);
+    if check_recovery_key(recovery_timeout) {
+        cfg = load_config();
+    }
+    let cfg = cfg.unwrap_or_else(|| config::Config {
+        default: None,
+        timeout: 5,
+        recovery_timeout: 5,
+        no_scan: false,
+        order: None,
+        entries: alloc::vec::Vec::new(),
+    });
 
     let detected = if !cfg.no_scan { detect::scan_esp() } else { Vec::new() };
 
@@ -237,16 +238,17 @@ fn recovery_menu() {
     }
 }
 
-fn check_recovery_key() {
+fn check_recovery_key(timeout_secs: u64) -> bool {
     let input = match get_stdin_system() {
         Some(i) => i,
-        None => return,
+        None => return false,
     };
     let _ = input.reset(false);
 
-    println!("Hold r for recovery...");
+    let iterations = timeout_secs * 100;
+    println!("Hold r for recovery ({}s)...", timeout_secs);
 
-    for _ in 0..500 {
+    for _ in 0..iterations {
         if let Ok(Some(key)) = input.read_key() {
             if let Key::Printable(c) = key {
                 let c_val: u16 = c.into();
@@ -258,12 +260,13 @@ fn check_recovery_key() {
                     } else {
                         println!("No backup found at \\EFI\\hboot\\backup\\entries\\");
                     }
-                    return;
+                    return true;
                 }
             }
         }
         boot::stall(core::time::Duration::from_millis(10));
     }
+    false
 }
 
 fn ensure_backup_dir() {
@@ -362,6 +365,7 @@ fn load_config() -> Option<config::Config> {
     let mut cfg = config::Config {
         default: None,
         timeout: 5,
+        recovery_timeout: 5,
         no_scan: false,
         order: None,
         entries: Vec::new(),
