@@ -192,7 +192,6 @@ pub fn show_status(lines: &[(&str, Color)]) {
         let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
         let start_x = (cols - w) / 2;
 
-        g.clear().ok();
         g.set_cursor_position(0, start_y).ok();
 
         draw_top(g, &title, w, start_x);
@@ -202,6 +201,12 @@ pub fn show_status(lines: &[(&str, Color)]) {
         }
         draw_empty(g, w, start_x);
         draw_bottom(g, w, start_x);
+        // Clear any ghost from a different-height previous draw
+        set_fg_bg(g, Color::Black, Color::Black);
+        indent(g, start_x);
+        write_str(g, &" ".repeat(w));
+        set_fg_bg(g, Color::White, Color::Black);
+        write_str(g, "\r\n");
     });
 }
 
@@ -380,7 +385,6 @@ fn draw_no_entries() {
         let start_x = (cols - w) / 2;
         let title = format!("hboot v{}", VERSION);
 
-        g.clear().ok();
         g.set_cursor_position(0, start_y).ok();
 
         draw_top(g, &title, w, start_x);
@@ -391,6 +395,11 @@ fn draw_no_entries() {
         draw_line(g, "f  firmware setup", w, Color::DarkGray, start_x);
         draw_empty(g, w, start_x);
         draw_bottom(g, w, start_x);
+        set_fg_bg(g, Color::Black, Color::Black);
+        indent(g, start_x);
+        write_str(g, &" ".repeat(w));
+        set_fg_bg(g, Color::White, Color::Black);
+        write_str(g, "\r\n");
     });
 }
 
@@ -429,7 +438,6 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
         let start_x = (cols - w) / 2;
 
-        g.clear().ok();
         g.set_cursor_position(0, start_y).ok();
 
         draw_top(g, &title, w, start_x);
@@ -478,6 +486,11 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         write_str(g, " │\r\n");
 
         draw_bottom(g, w, start_x);
+        set_fg_bg(g, Color::Black, Color::Black);
+        indent(g, start_x);
+        write_str(g, &" ".repeat(w));
+        set_fg_bg(g, Color::White, Color::Black);
+        write_str(g, "\r\n");
     });
 }
 
@@ -496,7 +509,6 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
         let start_x = (cols - w) / 2;
         let title = "Manual Boot".to_string();
 
-        g.clear().ok();
         g.set_cursor_position(0, start_y).ok();
 
         draw_top(g, &title, w, start_x);
