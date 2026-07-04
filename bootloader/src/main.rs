@@ -11,7 +11,7 @@ use uefi::cstr16;
 use uefi::fs::FileSystem;
 use uefi::prelude::*;
 use uefi::println;
-use uefi::proto::console::text::Input;
+use uefi::proto::console::text::{Input, Key, ScanCode};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::CString16;
 
@@ -29,7 +29,6 @@ fn main() -> Status {
     let cfg = load_config().unwrap_or_else(|| config::Config {
         default: None,
         timeout: 5,
-        recovery_timeout: 5,
         no_scan: false,
         order: None,
         entries: alloc::vec::Vec::new(),
@@ -189,6 +188,7 @@ fn recovery_menu_with_input(input: &mut Input) {
         text.push_str("  r  Reboot\r\n");
         text.push_str("  f  Firmware setup\r\n");
         text.push_str("  s  Shutdown\r\n");
+        text.push_str("  Esc  Back to boot menu\r\n");
         text.push_str("  ------------------------------\r\n");
         text.push_str("  Choose an option:\r\n");
 
@@ -204,7 +204,11 @@ fn recovery_menu_with_input(input: &mut Input) {
             boot::stall(core::time::Duration::from_millis(10));
         };
 
-        if let uefi::proto::console::text::Key::Printable(c) = key {
+        if key == Key::Special(ScanCode::ESCAPE) {
+            return;
+        }
+
+        if let Key::Printable(c) = key {
             let c_val: u16 = c.into();
             if c_val == b'm' as u16 || c_val == b'M' as u16 {
                 manual_boot_with_input(input);
@@ -352,7 +356,6 @@ fn load_config() -> Option<config::Config> {
     let mut cfg = config::Config {
         default: None,
         timeout: 5,
-        recovery_timeout: 5,
         no_scan: false,
         order: None,
         entries: Vec::new(),
@@ -366,7 +369,6 @@ fn load_config() -> Option<config::Config> {
                     cfg.default = parsed.default;
                 }
                 cfg.timeout = parsed.timeout;
-                cfg.recovery_timeout = parsed.recovery_timeout;
                 if cfg.order.is_none() {
                     cfg.order = parsed.order;
                 }

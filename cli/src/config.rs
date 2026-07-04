@@ -17,7 +17,6 @@ pub fn init(output: String) {
 # Boot entries go in /EFI/hboot/entries/*.conf (one file per entry).
 default = arch
 timeout = 5
-recovery_timeout = 5
 # order = arch windows    # uncomment to set display order by entry name
 # no_scan = true          # uncomment to disable auto-detection of OSes
 "#;
@@ -369,7 +368,6 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
     main_conf.push_str("# Boot entries are in /EFI/hboot/entries/*.conf\n");
     main_conf.push_str("no_scan = true\n");
     main_conf.push_str("timeout = 5\n");
-    main_conf.push_str("recovery_timeout = 5\n");
 
     if !entry_files.is_empty() {
         let order: Vec<&str> = entry_files.iter().map(|(n, _, _, _, _)| n.as_str()).collect();

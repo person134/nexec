@@ -21,7 +21,6 @@ pub struct Entry {
 pub struct Config {
     pub default: Option<String>,
     pub timeout: u64,
-    pub recovery_timeout: u64,
     pub no_scan: bool,
     pub order: Option<Vec<String>>,
     pub entries: Vec<Entry>,
@@ -118,7 +117,6 @@ impl Config {
         let mut config = Config {
             default: None,
             timeout: 5,
-            recovery_timeout: 5,
             no_scan: false,
             order: None,
             entries: Vec::new(),
@@ -180,9 +178,6 @@ impl Config {
                         "default" => config.default = Some(value.to_string()),
                         "timeout" => {
                             config.timeout = value.parse().map_err(|_| "invalid timeout")?
-                        }
-                        "recovery_timeout" => {
-                            config.recovery_timeout = value.parse().map_err(|_| "invalid recovery_timeout")?
                         }
                         "no_scan" => {
                             config.no_scan = matches!(value.to_lowercase().as_str(), "true" | "yes" | "1");
