@@ -86,25 +86,35 @@ fn box_width(cols: usize, title: &str, lines: &[String]) -> usize {
     ((cols as usize).saturating_sub(2)).min(52.max(desired))
 }
 
-fn draw_top(g: &mut Output, title: &str, w: usize) {
+fn indent(g: &mut Output, x: usize) {
+    if x > 0 {
+        write_str(g, &" ".repeat(x));
+    }
+}
+
+fn draw_top(g: &mut Output, title: &str, w: usize, x: usize) {
     set_fg_bg(g, Color::White, Color::Black);
     let dashes = "─".repeat(w.saturating_sub(title.len() + 4));
+    indent(g, x);
     write_str(g, &format!("┌ {} {}┐\r\n", title, dashes));
 }
 
-fn draw_bottom(g: &mut Output, w: usize) {
+fn draw_bottom(g: &mut Output, w: usize, x: usize) {
     set_fg_bg(g, Color::White, Color::Black);
+    indent(g, x);
     write_str(g, &format!("└{}┘\r\n", "─".repeat(w.saturating_sub(2))));
 }
 
-fn draw_empty(g: &mut Output, w: usize) {
+fn draw_empty(g: &mut Output, w: usize, x: usize) {
     set_fg_bg(g, Color::White, Color::Black);
+    indent(g, x);
     write_str(g, &format!("│{}│\r\n", " ".repeat(w.saturating_sub(2))));
 }
 
-fn draw_sep(g: &mut Output, w: usize) {
+fn draw_sep(g: &mut Output, w: usize, x: usize) {
     let inner = w.saturating_sub(4);
     set_fg_bg(g, Color::White, Color::Black);
+    indent(g, x);
     write_str(g, "│ ");
     set_fg_bg(g, Color::DarkGray, Color::Black);
     write_str(g, &"─".repeat(inner));
@@ -112,11 +122,12 @@ fn draw_sep(g: &mut Output, w: usize) {
     write_str(g, " │\r\n");
 }
 
-fn draw_line(g: &mut Output, text: &str, w: usize, color: Color) {
+fn draw_line(g: &mut Output, text: &str, w: usize, color: Color, x: usize) {
     let inner = w.saturating_sub(4);
     let tlen = text.chars().count();
     let display: String = text.chars().take(inner).collect();
     set_fg_bg(g, Color::White, Color::Black);
+    indent(g, x);
     write_str(g, "│ ");
     set_fg_bg(g, color, Color::Black);
     write_str(g, &display);
@@ -127,7 +138,7 @@ fn draw_line(g: &mut Output, text: &str, w: usize, color: Color) {
     write_str(g, " │\r\n");
 }
 
-fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w: usize) {
+fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w: usize, x: usize) {
     let marker = if selected { ">" } else { " " };
     let num = format!("{}.", idx + 1);
     let counter = entry.boot_counter.map_or(String::new(), |c| {
@@ -144,6 +155,7 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
     } else {
         set_fg_bg(g, Color::White, Color::Black);
     }
+    indent(g, x);
     write_str(g, "│ ");
     write_str(g, &prefix);
     write_str(g, " ");
@@ -190,15 +202,15 @@ pub fn show_status(lines: &[(&str, Color)]) {
         let start_x = (cols - w) / 2;
 
         g.clear().ok();
+        g.set_cursor_position(0, start_y).ok();
 
-        let mut r = start_y;
-        g.set_cursor_position(start_x, r).ok(); draw_top(g, &title, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
+        draw_top(g, &title, w, start_x);
+        draw_empty(g, w, start_x);
         for (text, color) in lines {
-            g.set_cursor_position(start_x, r).ok(); draw_line(g, text, w, *color); r += 1;
+            draw_line(g, text, w, *color, start_x);
         }
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_bottom(g, w);
+        draw_empty(g, w, start_x);
+        draw_bottom(g, w, start_x);
     });
 }
 
@@ -372,15 +384,16 @@ fn draw_no_entries() {
         let title = format!("hboot v{}", VERSION);
 
         g.clear().ok();
-        let mut r = start_y;
-        g.set_cursor_position(start_x, r).ok(); draw_top(g, &title, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "No entries detected", w, Color::White); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "m  manual boot", w, Color::DarkGray); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "f  firmware setup", w, Color::DarkGray); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_bottom(g, w);
+        g.set_cursor_position(0, start_y).ok();
+
+        draw_top(g, &title, w, start_x);
+        draw_empty(g, w, start_x);
+        draw_line(g, "No entries detected", w, Color::White, start_x);
+        draw_empty(g, w, start_x);
+        draw_line(g, "m  manual boot", w, Color::DarkGray, start_x);
+        draw_line(g, "f  firmware setup", w, Color::DarkGray, start_x);
+        draw_empty(g, w, start_x);
+        draw_bottom(g, w, start_x);
     });
 }
 
@@ -420,23 +433,23 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         let start_x = (cols - w) / 2;
 
         g.clear().ok();
+        g.set_cursor_position(0, start_y).ok();
 
-        let mut r = start_y;
-        g.set_cursor_position(start_x, r).ok(); draw_top(g, &title, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
+        draw_top(g, &title, w, start_x);
+        draw_empty(g, w, start_x);
 
         for (i, entry) in menu.entries.iter().enumerate() {
-            g.set_cursor_position(start_x, r).ok(); draw_entry_line(g, entry, i, i == menu.selected, w); r += 1;
+            draw_entry_line(g, entry, i, i == menu.selected, w, start_x);
         }
 
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_sep(g, w); r += 1;
+        draw_empty(g, w, start_x);
+        draw_sep(g, w, start_x);
 
         if let Some(s) = &countdown {
             let pad = inner.saturating_sub(s.chars().count());
             let left = pad / 2;
             let right = pad - left;
-            g.set_cursor_position(start_x, r).ok();
+            indent(g, start_x);
             set_fg_bg(g, Color::White, Color::Black);
             write_str(g, "│ ");
             set_fg_bg(g, Color::DarkGray, Color::Black);
@@ -445,10 +458,9 @@ fn draw_menu(menu: &Menu, remaining: u64) {
             write_str(g, &" ".repeat(right));
             set_fg_bg(g, Color::White, Color::Black);
             write_str(g, " │\r\n");
-            r += 1;
         }
 
-        g.set_cursor_position(start_x, r).ok();
+        indent(g, start_x);
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
         set_fg_bg(g, Color::DarkGray, Color::Black);
@@ -457,9 +469,8 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         write_str(g, &" ".repeat(inner.saturating_sub(foot1.chars().count() + 1)));
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, " │\r\n");
-        r += 1;
 
-        g.set_cursor_position(start_x, r).ok();
+        indent(g, start_x);
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, "│ ");
         set_fg_bg(g, Color::DarkGray, Color::Black);
@@ -468,9 +479,8 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         write_str(g, &" ".repeat(inner.saturating_sub(foot2.chars().count() + 1)));
         set_fg_bg(g, Color::White, Color::Black);
         write_str(g, " │\r\n");
-        r += 1;
 
-        g.set_cursor_position(start_x, r).ok(); draw_bottom(g, w);
+        draw_bottom(g, w, start_x);
     });
 }
 
@@ -490,18 +500,25 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
         let title = "Manual Boot".to_string();
 
         g.clear().ok();
-        let mut r = start_y;
-        g.set_cursor_position(start_x, r).ok(); draw_top(g, &title, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "Enter path to .efi file", w, Color::White); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "(e.g. /EFI/arch/systemd-bootx64.efi)", w, Color::DarkGray); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x + 1, r - 1).ok();
+        g.set_cursor_position(0, start_y).ok();
+
+        draw_top(g, &title, w, start_x);
+        draw_empty(g, w, start_x);
+        draw_line(g, "Enter path to .efi file", w, Color::White, start_x);
+        draw_line(g, "(e.g. /EFI/arch/systemd-bootx64.efi)", w, Color::DarkGray, start_x);
+        draw_empty(g, w, start_x);
+        // Input line with prompt
+        indent(g, start_x);
         set_fg_bg(g, Color::White, Color::Black);
+        write_str(g, "│ ");
+        set_fg_bg(g, Color::DarkGray, Color::Black);
         write_str(g, "> ");
-        g.set_cursor_position(start_x, r).ok(); draw_empty(g, w); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_line(g, "Enter to boot, Esc to go back", w, Color::DarkGray); r += 1;
-        g.set_cursor_position(start_x, r).ok(); draw_bottom(g, w);
+        set_fg_bg(g, Color::White, Color::Black);
+        write_str(g, &" ".repeat(w.saturating_sub(4) - 2));
+        write_str(g, " │\r\n");
+        draw_empty(g, w, start_x);
+        draw_line(g, "Enter to boot, Esc to go back", w, Color::DarkGray, start_x);
+        draw_bottom(g, w, start_x);
     });
 
     let mut buf: Vec<u8> = Vec::new();
