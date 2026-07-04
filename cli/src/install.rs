@@ -451,9 +451,49 @@ fn resolve_esp_disk_part(
     (disk_override.unwrap_or_else(|| "/dev/nvme0n1".to_string()), part_override.unwrap_or(1))
 }
 
+fn ensure_efibootmgr() -> bool {
+    if Command::new("which").arg("efibootmgr").output().is_ok() {
+        return true;
+    }
+
+    cprintln!(YELLOW, "  efibootmgr not found. Attempting to install...");
+
+    let pm_commands: &[(&str, &[&str])] = &[
+        ("pacman", &["-S", "--noconfirm", "efibootmgr"]),
+        ("apt", &["install", "-y", "efibootmgr"]),
+        ("dnf", &["install", "-y", "efibootmgr"]),
+        ("zypper", &["install", "-y", "efibootmgr"]),
+        ("apk", &["add", "efibootmgr"]),
+        ("yum", &["install", "-y", "efibootmgr"]),
+        ("emerge", &["efibootmgr"]),
+    ];
+
+    for (pm, args) in pm_commands {
+        if Command::new("which").arg(pm).output().is_ok() {
+            cprintln!(CYAN, "  Detected package manager: {}", pm);
+            let status = Command::new(pm)
+                .args(*args)
+                .status()
+                .unwrap_or_else(|e| {
+                    eprintln!("\x1b[31merror:{} failed to run {}: {}", RESET, pm, e);
+                    std::process::exit(1);
+                });
+            if status.success() {
+                cprintln!(GREEN, "  efibootmgr installed.");
+                return true;
+            } else {
+                cprintln!(YELLOW, "  {} failed to install efibootmgr.", pm);
+                return false;
+            }
+        }
+    }
+
+    cprintln!(YELLOW, "  No supported package manager found. Install efibootmgr manually.");
+    false
+}
+
 fn register_efibootmgr(disk: &str, part: u32, loader_path: &str) -> bool {
-    if Command::new("which").arg("efibootmgr").output().is_err() {
-        cprintln!(YELLOW, "  efibootmgr not found.");
+    if !ensure_efibootmgr() {
         return false;
     }
 

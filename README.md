@@ -11,6 +11,10 @@ chmod +x hboot
 sudo ./hboot install
 ```
 
+On first run, `hboot install` automatically installs `efibootmgr` (via
+`pacman`, `apt`, `dnf`, `zypper`, `apk`, `yum`, or `emerge`) if missing —
+no manual dependency setup needed.
+
 Reboot and pick **hboot** from your UEFI boot menu.
 
 The installer copies itself to `/usr/bin/hboot`, so subsequent runs are
@@ -35,7 +39,7 @@ entries. Each entry loads the kernel `.efi` binary.
 
 | Command | What it does |
 |---------|--------------|
-| `hboot install` | Build, copy to ESP, register with firmware |
+| `hboot install` | Install efibootmgr, build, copy to ESP, register with firmware |
 | `hboot remove` | Remove from ESP and boot entries |
 | `hboot status` | Check if hboot is installed |
 | `hboot config edit` | Open config in `$EDITOR` |
