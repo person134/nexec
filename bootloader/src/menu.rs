@@ -309,9 +309,7 @@ impl Menu {
         let _ = input.reset(false);
         let mut remaining = self.timeout * 10;
 
-        uefi::system::with_stdout(|g| {
-            let _ = g.clear();
-        });
+        let mut dirty = true;
 
         loop {
             if self.entries.is_empty() {
@@ -322,11 +320,15 @@ impl Menu {
                 }
             }
 
-            draw_menu(self, remaining);
+            if dirty {
+                draw_menu(self, remaining);
+                dirty = false;
+            }
 
             if remaining > 0 {
                 if let Some(k) = poll_for_key(input, 100) {
                     remaining = 0;
+                    dirty = true;
                     match handle_key(k, self) {
                         KeyAction::Boot => {
                             return MenuResult::Boot(self.entries[self.selected].clone())
@@ -350,7 +352,11 @@ impl Menu {
             }
 
             if remaining > 0 {
+                let prev = remaining / 10;
                 remaining = remaining.saturating_sub(1);
+                if remaining / 10 != prev || remaining == 0 {
+                    dirty = true;
+                }
                 if remaining == 0 && !self.entries.is_empty() {
                     return MenuResult::Boot(self.entries[self.selected].clone());
                 }
