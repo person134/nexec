@@ -150,33 +150,24 @@ fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w:
     let full = format!("{} {}{}", prefix, entry.title, counter);
     let flen = full.chars().count();
 
-    if selected {
-        set_fg_bg(g, Color::White, Color::LightGray);
-    } else {
-        set_fg_bg(g, Color::White, Color::Black);
-    }
+    set_fg_bg(g, Color::White, Color::Black);
     indent(g, x);
     write_str(g, "│ ");
+    if selected {
+        set_fg_bg(g, Color::White, Color::LightGray);
+    }
     write_str(g, &prefix);
     write_str(g, " ");
     write_str(g, &entry.title);
 
     if !counter.is_empty() {
-        if selected {
-            set_fg_bg(g, Color::DarkGray, Color::LightGray);
-        } else {
-            set_fg_bg(g, Color::DarkGray, Color::Black);
-        }
+        set_fg_bg(g, Color::DarkGray, if selected { Color::LightGray } else { Color::Black });
         write_str(g, &counter);
     }
 
     let pad = inner.saturating_sub(flen);
     if pad > 0 {
-        if selected {
-            set_fg_bg(g, Color::White, Color::LightGray);
-        } else {
-            set_fg_bg(g, Color::White, Color::Black);
-        }
+        set_fg_bg(g, Color::White, if selected { Color::LightGray } else { Color::Black });
         write_str(g, &" ".repeat(pad));
     }
 
