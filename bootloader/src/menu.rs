@@ -98,24 +98,33 @@ fn draw_bottom(g: &mut Output, w: usize) {
 }
 
 fn draw_empty(g: &mut Output, w: usize) {
+    set_fg(g, Color::Cyan);
     write_str(g, &format!("│{}│\r\n", " ".repeat(w.saturating_sub(2))));
 }
 
 fn draw_sep(g: &mut Output, w: usize) {
+    let inner = w.saturating_sub(4);
+    set_fg(g, Color::Cyan);
+    write_str(g, "│ ");
     set_fg(g, Color::DarkGray);
-    write_str(g, &format!("│ {} │\r\n", "─".repeat(w.saturating_sub(4))));
+    write_str(g, &"─".repeat(inner));
+    set_fg(g, Color::Cyan);
+    write_str(g, " │\r\n");
 }
 
 fn draw_line(g: &mut Output, text: &str, w: usize, color: Color) {
-    set_fg(g, color);
     let inner = w.saturating_sub(4);
     let tlen = text.chars().count();
-    if tlen >= inner {
-        let s: String = text.chars().take(inner).collect();
-        write_str(g, &format!("│ {} │\r\n", s));
-    } else {
-        write_str(g, &format!("│ {}{} │\r\n", text, " ".repeat(inner - tlen)));
+    let display: String = text.chars().take(inner).collect();
+    set_fg(g, Color::Cyan);
+    write_str(g, "│ ");
+    set_fg(g, color);
+    write_str(g, &display);
+    if tlen < inner {
+        write_str(g, &" ".repeat(inner - tlen));
     }
+    set_fg(g, Color::Cyan);
+    write_str(g, " │\r\n");
 }
 
 fn draw_entry_line(g: &mut Output, entry: &Entry, idx: usize, selected: bool, w: usize) {
@@ -347,9 +356,17 @@ impl Menu {
 
 fn draw_no_entries() {
     uefi::system::with_stdout(|g| {
-        g.clear().ok();
-        let w = 46;
+        let (cols, rows) = g.current_mode().ok().flatten()
+            .map(|m| (m.columns(), m.rows()))
+            .unwrap_or((80, 25));
+        let w = ((cols as usize).saturating_sub(2)).min(46);
+        let box_h = 8;
+        let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
+        let start_x = (cols - w) / 2;
         let title = format!("hboot v{}", VERSION);
+
+        g.clear().ok();
+        g.set_cursor_position(start_x, start_y).ok();
         draw_top(g, &title, w);
         draw_empty(g, w);
         draw_line(g, "No entries detected", w, Color::White);
@@ -394,9 +411,10 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         let extra = countdown.as_ref().map_or(0, |_| 1);
         let box_h = menu.entries.len() + 8 + extra;
         let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
+        let start_x = (cols - w) / 2;
 
         g.clear().ok();
-        g.set_cursor_position(0, start_y).ok();
+        g.set_cursor_position(start_x, start_y).ok();
 
         draw_top(g, &title, w);
         draw_empty(g, w);
@@ -409,16 +427,35 @@ fn draw_menu(menu: &Menu, remaining: u64) {
         draw_sep(g, w);
 
         if let Some(s) = &countdown {
-            set_fg(g, Color::Yellow);
             let pad = inner.saturating_sub(s.chars().count());
             let left = pad / 2;
             let right = pad - left;
-            write_str(g, &format!("│ {}{}{} │\r\n", " ".repeat(left), s, " ".repeat(right)));
+            set_fg(g, Color::Cyan);
+            write_str(g, "│ ");
+            set_fg(g, Color::Yellow);
+            write_str(g, &" ".repeat(left));
+            write_str(g, s);
+            write_str(g, &" ".repeat(right));
+            set_fg(g, Color::Cyan);
+            write_str(g, " │\r\n");
         }
 
+        set_fg(g, Color::Cyan);
+        write_str(g, "│ ");
         set_fg(g, Color::DarkGray);
-        write_str(g, &format!("│  {}{} │\r\n", foot1, " ".repeat(inner.saturating_sub(foot1.chars().count() + 1))));
-        write_str(g, &format!("│  {}{} │\r\n", foot2, " ".repeat(inner.saturating_sub(foot2.chars().count() + 1))));
+        write_str(g, " ");
+        write_str(g, foot1);
+        write_str(g, &" ".repeat(inner.saturating_sub(foot1.chars().count() + 1)));
+        set_fg(g, Color::Cyan);
+        write_str(g, " │\r\n");
+        set_fg(g, Color::Cyan);
+        write_str(g, "│ ");
+        set_fg(g, Color::DarkGray);
+        write_str(g, " ");
+        write_str(g, foot2);
+        write_str(g, &" ".repeat(inner.saturating_sub(foot2.chars().count() + 1)));
+        set_fg(g, Color::Cyan);
+        write_str(g, " │\r\n");
         draw_bottom(g, w);
     });
 }
@@ -429,19 +466,26 @@ fn draw_menu(menu: &Menu, remaining: u64) {
 
 pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
     uefi::system::with_stdout(|g| {
-        g.clear().ok();
-        let w = 54;
+        let (cols, rows) = g.current_mode().ok().flatten()
+            .map(|m| (m.columns(), m.rows()))
+            .unwrap_or((80, 25));
+        let w = ((cols as usize).saturating_sub(2)).min(54);
+        let box_h = 8;
+        let start_y = if box_h < rows { (rows - box_h) / 2 } else { 1 };
+        let start_x = (cols - w) / 2;
         let title = "Manual Boot".to_string();
+
+        g.clear().ok();
+        g.set_cursor_position(start_x, start_y).ok();
         draw_top(g, &title, w);
         draw_empty(g, w);
         draw_line(g, "Enter path to .efi file", w, Color::White);
         draw_line(g, "(e.g. /EFI/arch/systemd-bootx64.efi)", w, Color::DarkGray);
         draw_empty(g, w);
-        set_fg(g, Color::Cyan);
-        write_str(g, &format!("│ {}│\r\n", " ".repeat(w.saturating_sub(2))));
-        g.set_cursor_position(2, g.cursor_position().1.saturating_sub(1)).ok();
-        write_str(g, "> ");
+        g.set_cursor_position(start_x + 1, g.cursor_position().1.saturating_sub(1)).ok();
         set_fg(g, Color::White);
+        write_str(g, "> ");
+        set_fg(g, Color::Cyan);
         draw_empty(g, w);
         draw_line(g, "Enter to boot, Esc to go back", w, Color::DarkGray);
         draw_bottom(g, w);
