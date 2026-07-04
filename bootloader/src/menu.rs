@@ -104,20 +104,14 @@ impl Menu {
     }
 
     fn open_any_input() -> Option<MenuInput<'static>> {
-        // First, try system table ConIn — this is the firmware's console input
         if let Some(input) = Self::input_from_system_table() {
-            let _ = input.reset(true);
-            boot::stall(core::time::Duration::from_millis(200));
             let _ = input.reset(false);
             return Some(MenuInput::Borrowed(input));
         }
 
-        // Fallback: search Input protocol handles
         if let Ok(handles) = boot::locate_handle_buffer(SearchType::ByProtocol(&Input::GUID)) {
             for handle in handles.iter() {
                 if let Ok(mut g) = boot::open_protocol_exclusive::<Input>(*handle) {
-                    let _ = g.reset(true);
-                    boot::stall(core::time::Duration::from_millis(200));
                     let _ = g.reset(false);
                     return Some(MenuInput::Owned(g));
                 }
@@ -131,8 +125,6 @@ impl Menu {
                         OpenProtocolAttributes::GetProtocol,
                     )
                 } {
-                    let _ = g.reset(true);
-                    boot::stall(core::time::Duration::from_millis(200));
                     let _ = g.reset(false);
                     return Some(MenuInput::Owned(g));
                 }
@@ -183,12 +175,14 @@ impl Menu {
                     }
                 }
             } else {
-                match handle_key(read_key_blocking(input), self) {
-                    KeyAction::Boot => {
-                        return MenuResult::Boot(self.entries[self.selected].clone())
+                if let Some(key) = read_key_blocking(input) {
+                    match handle_key(key, self) {
+                        KeyAction::Boot => {
+                            return MenuResult::Boot(self.entries[self.selected].clone())
+                        }
+                        KeyAction::Manual => return MenuResult::Manual,
+                        KeyAction::Nothing => {}
                     }
-                    KeyAction::Manual => return MenuResult::Manual,
-                    KeyAction::Nothing => {}
                 }
             }
 
@@ -281,7 +275,7 @@ pub fn prompt_manual(input: &mut Input) -> Option<Entry> {
 
     let mut buf: Vec<u8> = Vec::new();
     loop {
-        let key = read_key_blocking(input);
+        let Some(key) = read_key_blocking(input) else { continue };
         match key {
             Key::Printable(c) => {
                 let c_val: u16 = c.into();
@@ -323,10 +317,15 @@ fn poll_for_key(input: &mut Input, delay_ms: u64) -> Option<Key> {
     input.read_key().ok().flatten()
 }
 
-fn read_key_blocking(input: &mut Input) -> Key {
+fn read_key_blocking(input: &mut Input) -> Option<Key> {
     loop {
-        if let Ok(Some(key)) = input.read_key() {
-            return key;
+        match input.read_key() {
+            Ok(Some(key)) => return Some(key),
+            Ok(None) => {}
+            Err(_) => {
+                // Device error — treat as no key available to avoid hang
+                return None;
+            }
         }
         boot::stall(core::time::Duration::from_millis(10));
     }
@@ -367,21 +366,6 @@ fn handle_key(key: Key, menu: &mut Menu) -> KeyAction {
                     menu.selected = idx;
                     return KeyAction::Boot;
                 }
-            }
-            match c_val {
-                0x0E | 0x2193 => {
-                    if menu.selected < menu.entries.len().saturating_sub(1) {
-                        menu.selected += 1;
-                    }
-                }
-                0x10 | 0x2191 => {
-                    if menu.selected > 0 {
-                        menu.selected -= 1;
-                    }
-                }
-                0x01 | 0x2190 => menu.selected = 0,
-                0x05 | 0x2192 => menu.selected = menu.entries.len().saturating_sub(1),
-                _ => {}
             }
         }
         _ => {}

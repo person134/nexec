@@ -117,8 +117,6 @@ pub fn find_input() -> Result<(boot::ScopedProtocol<Input>, uefi::Handle), ()> {
     let st = unsafe { raw_st.as_ref() };
     if !st.stdin.is_null() {
         let input = unsafe { &mut *(st.stdin.cast::<Input>()) };
-        let _ = input.reset(true);
-        boot::stall(core::time::Duration::from_millis(200));
         let _ = input.reset(false);
         if let Ok(handles) = boot::locate_handle_buffer(SearchType::ByProtocol(&Input::GUID)) {
             if let Some(h) = handles.iter().next() {
@@ -160,8 +158,6 @@ pub fn find_input() -> Result<(boot::ScopedProtocol<Input>, uefi::Handle), ()> {
         } else {
             continue;
         };
-        let _ = guard.reset(true);
-        boot::stall(core::time::Duration::from_millis(200));
         let _ = guard.reset(false);
         return Ok((guard, *handle));
     }
@@ -174,8 +170,6 @@ pub fn wait_for_key() {
         let st = unsafe { st.as_ref() };
         if !st.stdin.is_null() {
             let input = unsafe { &mut *(st.stdin.cast::<Input>()) };
-            let _ = input.reset(true);
-            boot::stall(core::time::Duration::from_millis(200));
             let _ = input.reset(false);
             input
         } else {
