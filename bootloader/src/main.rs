@@ -239,6 +239,9 @@ fn recovery_menu() {
 }
 
 fn check_recovery_key(timeout_secs: u64) -> bool {
+    if timeout_secs == 0 {
+        return false;
+    }
     let input = match get_stdin_system() {
         Some(i) => i,
         None => return false,
