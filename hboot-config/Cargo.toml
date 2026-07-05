@@ -1,0 +1,10 @@
+[package]
+name = "hboot-config"
+version = "2.0.0"
+edition = "2024"
+license = "MIT"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-uefi"
+
+[dependencies]
