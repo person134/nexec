@@ -377,17 +377,18 @@ pub fn generate_detected_config(esp: &str) -> (String, Vec<(String, String)>) {
     main_conf.push_str("# Boot entries are in /EFI/hboot/entries/*.conf\n");
     main_conf.push_str("no_scan = true\n");
     main_conf.push_str("timeout = 5\n");
+
+    if !entry_files.is_empty() {
+        let order: Vec<&str> = entry_files.iter().map(|(n, _, _, _, _)| n.as_str()).collect();
+        main_conf.push_str(&format!("order = {}\n", order.join(" ")));
+    }
+
     main_conf.push_str("# Keybinds (change these for non-QWERTY layouts)\n");
     main_conf.push_str("key_manual = m\n");
     main_conf.push_str("key_firmware = f\n");
     main_conf.push_str("key_reboot = r\n");
     main_conf.push_str("key_shutdown = s\n");
     main_conf.push_str("key_backup = b\n");
-
-    if !entry_files.is_empty() {
-        let order: Vec<&str> = entry_files.iter().map(|(n, _, _, _, _)| n.as_str()).collect();
-        main_conf.push_str(&format!("order = {}\n\n", order.join(" ")));
-    }
 
     // Generate entry files
     let entries: Vec<(String, String)> = entry_files
