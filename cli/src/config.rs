@@ -19,7 +19,6 @@ default = arch
 timeout = 5
 # order = arch windows    # uncomment to set display order by entry name
 # no_scan = true          # uncomment to disable auto-detection of OSes
-
 # Keybinds — configure which keys trigger each action.
 # Set these to match your keyboard layout (e.g. for AZERTY, you might
 # want key_manual = ,  since that key is where M is on QWERTY).
