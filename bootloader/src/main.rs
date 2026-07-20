@@ -1,0 +1,432 @@
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+
+use alloc::string::ToString;
+use alloc::vec::Vec;
+use uefi::boot;
+use uefi::cstr16;
+use uefi::fs::FileSystem;
+use uefi::prelude::*;
+use uefi::println;
+use uefi::proto::console::text::Input;
+use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::CString16;
+
+mod config;
+mod detect;
+mod menu;
+mod boot_loader;
+mod util;
+
+#[entry]
+fn main() -> Status {
+    uefi::helpers::init().unwrap();
+    log::set_max_level(log::LevelFilter::Off);
+
+    let cfg = load_config().unwrap_or_else(|| config::Config {
+        default: None,
+        timeout: 5,
+        no_scan: false,
+        order: None,
+        entries: alloc::vec::Vec::new(),
+        keybinds: config::Keybinds::default(),
+    });
+
+    let detected = if !cfg.no_scan { detect::scan_esp() } else { Vec::new() };
+
+    let mut menu_ui = menu::Menu::new(&cfg, detected);
+
+    loop {
+        match menu_ui.run() {
+            menu::MenuResult::Boot(entry) => {
+                uefi::system::with_stdout(|g| {
+                    let _ = g.clear();
+                });
+                decrement_boot_counter(&entry);
+                backup_entries();
+                boot_loader::boot_entry(&entry);
+                menu::show_status(&[
+                    ("Boot failed. Press any key for options...", uefi::proto::console::text::Color::White),
+                ]);
+                boot_loader::wait_for_key();
+            }
+            menu::MenuResult::Manual => manual_boot(),
+            menu::MenuResult::Shutdown => {
+                uefi::runtime::reset(uefi::runtime::ResetType::SHUTDOWN, uefi::Status::SUCCESS, None);
+            }
+            menu::MenuResult::RestoreBackup => {
+                menu::show_status(&[
+                    ("Restoring backup...", uefi::proto::console::text::Color::DarkGray),
+                ]);
+                if restore_entries() {
+                    menu::show_status(&[
+                        ("Backup restored!", uefi::proto::console::text::Color::White),
+                        ("Press any key to reboot...", uefi::proto::console::text::Color::DarkGray),
+                    ]);
+                } else {
+                    menu::show_status(&[
+                        ("No backup found.", uefi::proto::console::text::Color::White),
+                        ("Press any key to continue...", uefi::proto::console::text::Color::DarkGray),
+                    ]);
+                }
+                boot_loader::wait_for_key();
+                boot_loader::reset_system();
+            }
+        }
+    }
+}
+
+/// Decrement the boot counter for an entry by renaming the file.
+/// e.g., arch+3.conf → arch+2.conf, arch+1.conf → arch.conf
+fn decrement_boot_counter(entry: &config::Entry) {
+    let source = match entry.source_path.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let counter = match entry.boot_counter {
+        Some(c) if c > 0 => c,
+        _ => return,
+    };
+
+    // source = \EFI\nexec\entries\arch+3.conf
+    let dot_conf = source.len() - 5;
+    let name_part = &source[..dot_conf];
+
+    let plus = match name_part.rfind('+') {
+        Some(p) => p,
+        None => {
+            println!("decrement_boot_counter: no '+' in filename '{}'", source);
+            return;
+        }
+    };
+    let base = &name_part[..plus];
+
+    let new_name = if counter == 1 {
+        alloc::format!("{}.conf", base)
+    } else {
+        alloc::format!("{}+{}.conf", base, counter - 1)
+    };
+
+    let fs = match get_fs() {
+        Ok(f) => f,
+        Err(e) => {
+            println!("decrement_boot_counter: {}", e);
+            return;
+        }
+    };
+    let mut fs = fs;
+
+    let normalized_old = util::normalize_path(source);
+    let cstr_old = match CString16::try_from(normalized_old.as_str()) {
+        Ok(c) => c,
+        Err(_) => {
+            println!("decrement_boot_counter: invalid path '{}'", source);
+            return;
+        }
+    };
+    let content = match fs.read(cstr_old.as_ref()) {
+        Ok(c) => c,
+        Err(_) => {
+            println!("decrement_boot_counter: failed to read '{}'", source);
+            return;
+        }
+    };
+
+    let normalized_new = util::normalize_path(&new_name);
+    let cstr_new = match CString16::try_from(normalized_new.as_str()) {
+        Ok(c) => c,
+        Err(_) => {
+            println!("decrement_boot_counter: invalid new path '{}'", new_name);
+            return;
+        }
+    };
+    if fs.write(cstr_new.as_ref(), &content).is_err() {
+        println!("decrement_boot_counter: failed to write '{}'", new_name);
+        return;
+    }
+
+    // Delete old file using a separate protocol handle
+    if let Ok(mut sfsp) = boot::get_image_file_system(boot::image_handle()) {
+        if let Ok(mut volume) = sfsp.open_volume() {
+            if let Ok(old_file) = volume.open(cstr_old.as_ref(), FileMode::ReadWrite, FileAttribute::empty()) {
+                let _ = old_file.delete();
+            }
+        }
+    }
+}
+
+fn get_stdin_system() -> Option<&'static mut Input> {
+    let raw_st = uefi::table::system_table_raw()?;
+    let st = unsafe { raw_st.as_ref() };
+    if st.stdin.is_null() {
+        return None;
+    }
+    Some(unsafe { &mut *(st.stdin.cast::<Input>()) })
+}
+
+fn manual_boot_with_input(input: &mut Input) {
+    uefi::system::with_stdout(|g| {
+        let _ = g.clear();
+    });
+    let _ = input.reset(false);
+    if let Some(entry) = menu::browse_efi_files(input) {
+        if entry.efi_path.is_empty() {
+            return;
+        }
+        if !boot_loader::boot_entry(&entry) {
+            menu::show_status(&[
+                ("Boot failed.", uefi::proto::console::text::Color::White),
+                ("Press any key to continue...", uefi::proto::console::text::Color::DarkGray),
+            ]);
+            boot_loader::wait_for_key();
+        }
+    }
+}
+
+fn manual_boot() {
+    let mut fallback_guard: Option<boot::ScopedProtocol<Input>>;
+    let input: &mut Input = if let Ok((guard, _)) = boot_loader::find_input() {
+        fallback_guard = Some(guard);
+        fallback_guard.as_mut().unwrap()
+    } else if let Some(system_input) = get_stdin_system() {
+        system_input
+    } else {
+        println!("No input device available.");
+        boot_loader::wait_for_key();
+        return;
+    };
+    manual_boot_with_input(input);
+}
+
+fn ensure_backup_dir() {
+    if let Ok(mut sfsp) = boot::get_image_file_system(boot::image_handle()) {
+        if let Ok(mut volume) = sfsp.open_volume() {
+            for p in [cstr16!("\\EFI\\nexec\\backup"), cstr16!("\\EFI\\nexec\\backup\\entries")] {
+                let _ = volume.open(p, FileMode::CreateReadWrite, FileAttribute::DIRECTORY);
+            }
+        }
+    }
+}
+
+fn backup_entries() {
+    let fs = match get_fs() {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let mut fs = fs;
+
+    let entries_dir = cstr16!("\\EFI\\nexec\\entries");
+    if !fs.try_exists(entries_dir).unwrap_or(false) {
+        return;
+    }
+
+    ensure_backup_dir();
+
+    if let Ok(dir_iter) = fs.read_dir(entries_dir) {
+        for entry_result in dir_iter {
+            if let Ok(entry) = entry_result {
+                let name = entry.file_name();
+                let name_str = name.to_string();
+                if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
+                    let src_path = alloc::format!("\\EFI\\nexec\\entries\\{}", name_str);
+                    let dst_path = alloc::format!("\\EFI\\nexec\\backup\\entries\\{}", name_str);
+
+                    if let Ok(cstr_src) = CString16::try_from(src_path.as_str()) {
+                        if let Ok(data) = fs.read(cstr_src.as_ref()) {
+                            if let Ok(cstr_dst) = CString16::try_from(dst_path.as_str()) {
+                                let _ = fs.write(cstr_dst.as_ref(), &data);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn restore_entries() -> bool {
+    let fs = match get_fs() {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut fs = fs;
+
+    let backup_dir = cstr16!("\\EFI\\nexec\\backup\\entries");
+    if !fs.try_exists(backup_dir).unwrap_or(false) {
+        return false;
+    }
+
+    let mut restored = false;
+    if let Ok(dir_iter) = fs.read_dir(backup_dir) {
+        for entry_result in dir_iter {
+            if let Ok(entry) = entry_result {
+                let name = entry.file_name();
+                let name_str = name.to_string();
+                if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
+                    let src_path = alloc::format!("\\EFI\\nexec\\backup\\entries\\{}", name_str);
+                    let dst_path = alloc::format!("\\EFI\\nexec\\entries\\{}", name_str);
+
+                    if let Ok(cstr_src) = CString16::try_from(src_path.as_str()) {
+                        if let Ok(data) = fs.read(cstr_src.as_ref()) {
+                            if let Ok(cstr_dst) = CString16::try_from(dst_path.as_str()) {
+                                let _ = fs.write(cstr_dst.as_ref(), &data);
+                                restored = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    restored
+}
+
+fn load_config() -> Option<config::Config> {
+    let main_paths = [cstr16!("\\EFI\\nexec\\nexec.conf"), cstr16!("\\nexec.conf")];
+
+    let fs = get_fs();
+    let mut fs = match fs {
+        Ok(f) => f,
+        Err(_) => return None,
+    };
+
+    // Start with defaults
+    let mut cfg = config::Config {
+        default: None,
+        timeout: 5,
+        no_scan: false,
+        order: None,
+        entries: Vec::new(),
+        keybinds: config::Keybinds::default(),
+    };
+
+    // Read main config files for global settings + inline entries (backwards compat)
+    for path in &main_paths {
+        if let Ok(text) = fs.read_to_string(*path) {
+            if let Ok(parsed) = config::Config::parse(&text.into_bytes()) {
+                if cfg.default.is_none() {
+                    cfg.default = parsed.default;
+                }
+                cfg.timeout = parsed.timeout;
+                if cfg.order.is_none() {
+                    cfg.order = parsed.order;
+                }
+                if parsed.no_scan {
+                    cfg.no_scan = true;
+                }
+                cfg.keybinds = parsed.keybinds;
+                // Inline entries (old format with [name] sections)
+                for e in parsed.entries {
+                    if !cfg.entries.iter().any(|x| x.name == e.name) {
+                        cfg.entries.push(e);
+                    }
+                }
+            }
+        }
+    }
+
+    // Read entry files from \EFI\nexec\entries\*.conf
+    let entries_dir = cstr16!("\\EFI\\nexec\\entries");
+    if fs.try_exists(entries_dir).unwrap_or(false) {
+        if let Ok(dir_iter) = fs.read_dir(entries_dir) {
+            for entry_result in dir_iter {
+                if let Ok(entry) = entry_result {
+                    let name = entry.file_name();
+                    let name_str = name.to_string();
+                    if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
+                        load_one_entry(
+                            &mut cfg,
+                            &mut fs,
+                            &name_str,
+                            &alloc::format!("\\EFI\\nexec\\entries\\{}", name_str),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Read BLS type-1 entries from \loader\entries\*.conf
+    let bls_dir = cstr16!("\\loader\\entries");
+    if fs.try_exists(bls_dir).unwrap_or(false) {
+        if let Ok(dir_iter) = fs.read_dir(bls_dir) {
+            for entry_result in dir_iter {
+                if let Ok(entry) = entry_result {
+                    let name = entry.file_name();
+                    let name_str = name.to_string();
+                    if name_str.ends_with(".conf") || name_str.ends_with(".CONF") {
+                        let full_path = alloc::format!("\\loader\\entries\\{}", name_str);
+                        let normalized = util::normalize_path(&full_path);
+                        let cstr = CString16::try_from(normalized.as_str()).ok();
+                        if let Some(c) = cstr {
+                            if let Ok(data) = fs.read(c.as_ref()) {
+                                // Parse boot counter from filename: arch+3.conf
+                                let raw_name = name_str
+                                    .trim_end_matches(".conf")
+                                    .trim_end_matches(".CONF");
+                                let entry_name = raw_name.split('+').next().unwrap_or(raw_name);
+                                if let Ok(parsed) =
+                                    config::Config::parse_bls_entry(entry_name, &data)
+                                {
+                                    let mut parsed = parsed;
+                                    parsed.boot_counter = parse_counter(raw_name);
+                                    parsed.source_path = Some(full_path);
+                                    cfg.entries.retain(|e| e.name != parsed.name);
+                                    cfg.entries.push(parsed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(cfg)
+}
+
+/// Load one nexec entry file, parsing boot counter from filename (arch+3.conf → counter=3).
+fn load_one_entry(
+    cfg: &mut config::Config,
+    fs: &mut FileSystem,
+    name_str: &str,
+    full_path: &str,
+) {
+    let raw_name = name_str
+        .trim_end_matches(".conf")
+        .trim_end_matches(".CONF");
+    let entry_name = raw_name.split('+').next().unwrap_or(raw_name);
+    if let Ok(data) = read_entry_file(fs, full_path) {
+        if let Ok(mut parsed) = config::Config::parse_entry_file(entry_name, &data) {
+            parsed.boot_counter = parse_counter(raw_name);
+            parsed.source_path = Some(full_path.to_string());
+            cfg.entries.retain(|e| e.name != parsed.name);
+            cfg.entries.push(parsed);
+        }
+    }
+}
+
+/// Parse boot counter from a filename like "arch+3" → Some(3), "arch" → None.
+fn parse_counter(raw_name: &str) -> Option<u32> {
+    if let Some(plus) = raw_name.rfind('+') {
+        let suffix = &raw_name[plus + 1..];
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return suffix.parse().ok();
+        }
+    }
+    None
+}
+
+fn read_entry_file(fs: &mut FileSystem, path: &str) -> Result<Vec<u8>, ()> {
+    let normalized = util::normalize_path(path);
+    let cstr = CString16::try_from(normalized.as_str()).map_err(|_| ())?;
+    fs.read(cstr.as_ref()).map_err(|_| ())
+}
+
+fn get_fs() -> Result<uefi::fs::FileSystem, &'static str> {
+    let sfsp = boot::get_image_file_system(boot::image_handle())
+        .map_err(|_| "failed to open filesystem")?;
+    Ok(uefi::fs::FileSystem::new(sfsp))
+}

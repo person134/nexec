@@ -1,0 +1,12 @@
+[package]
+name = "nexec-efi"
+version = "2.3.0"
+edition = "2024"
+description = "nexec UEFI boot manager"
+license = "MIT"
+autotests = false
+
+[dependencies]
+nexec-config = { path = "../nexec-config" }
+uefi = { version = "0.38", features = ["global_allocator", "logger", "panic_handler", "alloc"] }
+log = "0.4"
